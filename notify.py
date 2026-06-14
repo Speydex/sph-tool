@@ -47,8 +47,8 @@ def main() -> int:
     phone = os.getenv("CALLMEBOT_PHONE", "").strip()
     apikey = os.getenv("CALLMEBOT_APIKEY", "").strip()
     if not phone or not apikey:
-        print("Keine CallMeBot-Daten (CALLMEBOT_PHONE / CALLMEBOT_APIKEY) gesetzt.")
-        return 1
+        print("Keine CallMeBot-Daten gesetzt - WhatsApp wird uebersprungen.")
+        return 0  # kein Fehler: Auslesen klappt auch ohne Benachrichtigung
 
     if not STATUS_FILE.exists():
         print(f"Keine Status-Datei gefunden: {STATUS_FILE}")
