@@ -49,13 +49,18 @@ try {
 
     $data = Get-Content $status -Raw -Encoding utf8 | ConvertFrom-Json
     $n = [int]$data.anzahl_offen
+    $v = [int]$data.anzahl_vertretungen
 
-    if ($n -gt 0) {
-        $faecher = ($data.offen | ForEach-Object { $_.kurs }) -join ", "
-        Write-Log ("{0} offene Hausaufgabe(n): {1}" -f $n, $faecher)
-        Show-Toast "Offene Hausaufgaben: $n" $faecher
+    $teile = @()
+    if ($n -gt 0) { $teile += ("{0} offene HA: {1}" -f $n, (($data.offen | ForEach-Object { $_.kurs }) -join ", ")) }
+    if ($v -gt 0) { $teile += ("{0} Vertretung(en): {1}" -f $v, (($data.vertretungen | ForEach-Object { ("{0} {1}" -f $_.datum, $_.fach) }) -join ", ")) }
+
+    if ($teile.Count -gt 0) {
+        $msg = $teile -join "  |  "
+        Write-Log $msg
+        Show-Toast "Schulportal-Update" $msg
     } else {
-        Write-Log "Keine offenen Hausaufgaben."
+        Write-Log "Nichts Neues (keine offenen HA, keine Vertretungen)."
     }
 } catch {
     Write-Log ("AUSNAHME: " + $_.Exception.Message)

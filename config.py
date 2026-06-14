@@ -61,9 +61,11 @@ LOGGED_IN_MARKER = "a[href*='logout']"
 OUTPUT_DIR = PROJECT_DIR / "output"
 DEBUG_DIR = PROJECT_DIR / "debug"
 DOWNLOAD_DIR = PROJECT_DIR / "downloads"
+STATE_DIR = PROJECT_DIR / "state"        # merkt sich, was schon gemeldet wurde
 STORAGE_STATE = PROJECT_DIR / "storage_state.json"
+SIGNATURE_FILE = STATE_DIR / "last_signature.txt"
 
-for _d in (OUTPUT_DIR, DEBUG_DIR, DOWNLOAD_DIR):
+for _d in (OUTPUT_DIR, DEBUG_DIR, DOWNLOAD_DIR, STATE_DIR):
     _d.mkdir(exist_ok=True)
 
 

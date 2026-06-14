@@ -30,6 +30,16 @@ jobs:
         with:
           python-version: "3.12"
 
+      # Merkt sich zwischen den Laeufen, was schon gemeldet wurde (Anti-Spam).
+      # "Rolling cache": stellt den letzten Stand wieder her, speichert neuen am Ende.
+      - name: Status-Cache wiederherstellen
+        uses: actions/cache@v4
+        with:
+          path: state
+          key: sph-state-${{ github.run_id }}
+          restore-keys: |
+            sph-state-
+
       - name: Abhaengigkeiten installieren
         run: |
           python -m pip install --upgrade pip

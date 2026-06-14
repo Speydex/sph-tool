@@ -18,6 +18,7 @@ from playwright.sync_api import sync_playwright
 import config
 from login import ensure_logged_in
 from scraper import scrape_mein_unterricht
+from vertretung import scrape_vertretung
 
 STATUS_FILE = config.OUTPUT_DIR / "offen_status.json"
 
@@ -38,6 +39,7 @@ def main() -> int:
                 print("ABBRUCH: Login nicht moeglich.")
                 return 1
             aufgaben = scrape_mein_unterricht(page)
+            vertretungen = scrape_vertretung(page)
         finally:
             context.close()
             browser.close()
@@ -51,6 +53,8 @@ def main() -> int:
         "anzahl_offen": len(offen),
         "anzahl_hausaufgaben_gesamt": len([a for a in aufgaben if a.hausaufgabe]),
         "offen": [asdict(a) for a in offen],
+        "anzahl_vertretungen": len(vertretungen),
+        "vertretungen": [asdict(v) for v in vertretungen],
     }
     STATUS_FILE.write_text(json.dumps(status, ensure_ascii=False, indent=2), encoding="utf-8")
 
@@ -69,6 +73,12 @@ def main() -> int:
             if a.anhaenge:
                 print(f"  Anhaenge: {', '.join(a.anhaenge)}")
             print(f"  Kursmappe: {a.kursmappe_url}")
+    print("=" * 60)
+
+    print(f"VERTRETUNGSPLAN: {len(vertretungen)} Eintrag/Eintraege")
+    for v in vertretungen:
+        print(f"  [{v.datum}] Std {v.stunde} | {v.fach} | {v.art} | {v.vertretung} | Raum {v.raum}"
+              + (f" | {v.hinweis}" if v.hinweis else ""))
     print("=" * 60)
     return 0
 

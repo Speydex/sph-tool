@@ -8,7 +8,9 @@ Damit der Check läuft, **ohne dass dein PC an ist**. Drei Teile — geht in ~15
 
 Damit dir das Skript WhatsApp schreiben darf, einmalig freischalten:
 
-1. Speichere die Nummer **+34 644 51 95 23** als Kontakt (Name egal, z.B. „CallMeBot").
+1. Speichere die Nummer **+34 621 34 34 03** als Kontakt (Name egal, z.B. „CallMeBot").
+   (Falls keine Antwort kommt: CallMeBot ändert die Nummer manchmal — aktuelle
+    Nummer dann auf https://www.callmebot.com/blog/free-api-whatsapp-messages/ prüfen.)
 2. Schick dieser Nummer per WhatsApp genau diese Nachricht:
    ```
    I allow callmebot to send me messages
