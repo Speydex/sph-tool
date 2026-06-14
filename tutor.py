@@ -1,11 +1,13 @@
-"""KI-Tutor: erklaert offene Hausaufgaben - loest sie NICHT.
+"""KI-Tutor mit Google Gemini (kostenlose API): erklaert offene Hausaufgaben
+- loest sie NICHT.
 
-Liest output/offen_status.json, schickt jede offene Aufgabe an Claude mit der
-klaren Anweisung, nur zu ERKLAEREN (L-oesungsweg, Konzepte, Tipps) und KEINE
+Liest output/offen_status.json, schickt jede offene Aufgabe an Gemini mit der
+klaren Anweisung, nur zu ERKLAEREN (Loesungsweg, Konzepte, Tipps) und KEINE
 fertige Loesung zu liefern, und sendet die Erklaerung per WhatsApp.
 
-Braucht einen Anthropic API-Key in der Umgebung:
-    ANTHROPIC_API_KEY=sk-ant-...
+Braucht einen kostenlosen Gemini-Schluessel in der Umgebung:
+    GEMINI_API_KEY=...          (von https://aistudio.google.com)
+    GEMINI_MODEL=gemini-2.5-flash   (optional, Standardmodell)
 
 Anti-Spam: bereits erklaerte Aufgaben werden in state/explained_homework.txt
 gemerkt und nicht erneut erklaert.
@@ -15,14 +17,15 @@ from __future__ import annotations
 import hashlib
 import json
 import os
+import urllib.error
+import urllib.request
 
 import config
 from notify import send_whatsapp
 
 STATUS_FILE = config.OUTPUT_DIR / "offen_status.json"
 
-# Modell + System-Prompt. WICHTIG: nur erklaeren, niemals loesen.
-MODELL = "claude-opus-4-8"
+DEFAULT_MODEL = "gemini-2.5-flash"
 SYSTEM_PROMPT = (
     "Du bist ein geduldiger Tutor fuer einen Schueler der 8. Klasse. "
     "Erklaere die gestellte Hausaufgabe so, dass der Schueler sie SELBST loesen kann: "
@@ -51,29 +54,49 @@ def _save_explained(sigs: set[str]) -> None:
     config.EXPLAINED_FILE.write_text("\n".join(sorted(sigs)), encoding="utf-8")
 
 
-def erklaere(client, kurs: str, thema: str, hausaufgabe: str) -> str:
+def erklaere(api_key: str, model: str, kurs: str, thema: str, hausaufgabe: str) -> str:
+    """Ruft die Gemini-REST-API auf und gibt die Erklaerung zurueck."""
     frage = (
         f"Fach: {kurs}\n"
         f"Thema: {thema}\n"
         f"Aufgabenstellung: {hausaufgabe}\n\n"
         "Erklaere mir, was ich machen muss und wie ich rangehe."
     )
-    resp = client.messages.create(
-        model=MODELL,
-        max_tokens=4000,
-        thinking={"type": "adaptive"},
-        system=SYSTEM_PROMPT,
-        messages=[{"role": "user", "content": frage}],
+    url = (
+        f"https://generativelanguage.googleapis.com/v1beta/models/{model}:generateContent"
     )
-    return "".join(b.text for b in resp.content if b.type == "text").strip()
+    body = {
+        "systemInstruction": {"parts": [{"text": SYSTEM_PROMPT}]},
+        "contents": [{"role": "user", "parts": [{"text": frage}]}],
+        "generationConfig": {"temperature": 0.7, "maxOutputTokens": 1200},
+    }
+    data = json.dumps(body).encode("utf-8")
+    req = urllib.request.Request(
+        url,
+        data=data,
+        headers={"Content-Type": "application/json", "x-goog-api-key": api_key},
+        method="POST",
+    )
+    with urllib.request.urlopen(req, timeout=60) as resp:
+        out = json.loads(resp.read().decode("utf-8"))
+
+    candidates = out.get("candidates", [])
+    if not candidates:
+        raise RuntimeError(f"Keine Antwort von Gemini (evtl. blockiert): {out}")
+    parts = candidates[0].get("content", {}).get("parts", [])
+    text = "".join(p.get("text", "") for p in parts).strip()
+    if not text:
+        raise RuntimeError(f"Leere Antwort von Gemini: {out}")
+    return text
 
 
 def main() -> int:
-    api_key = os.getenv("ANTHROPIC_API_KEY", "").strip()
+    api_key = os.getenv("GEMINI_API_KEY", "").strip()
     if not api_key:
-        print("Kein ANTHROPIC_API_KEY gesetzt - Tutor wird uebersprungen.")
+        print("Kein GEMINI_API_KEY gesetzt - Tutor wird uebersprungen.")
         return 0
 
+    model = os.getenv("GEMINI_MODEL", DEFAULT_MODEL).strip() or DEFAULT_MODEL
     phone = os.getenv("CALLMEBOT_PHONE", "").strip()
     apikey_wa = os.getenv("CALLMEBOT_APIKEY", "").strip()
 
@@ -87,10 +110,6 @@ def main() -> int:
         print("Keine offenen Hausaufgaben - nichts zu erklaeren.")
         return 0
 
-    # SDK erst hier importieren, damit das Skript ohne Paket nicht hart abbricht.
-    import anthropic
-
-    client = anthropic.Anthropic(api_key=api_key)
     explained = _load_explained()
 
     for a in offen:
@@ -102,9 +121,12 @@ def main() -> int:
             print(f"Schon erklaert: {kurs} - uebersprungen.")
             continue
 
-        print(f"Erklaere Aufgabe: {kurs} ...")
+        print(f"Erklaere Aufgabe ({model}): {kurs} ...")
         try:
-            erklaerung = erklaere(client, kurs, thema, ha)
+            erklaerung = erklaere(api_key, model, kurs, thema, ha)
+        except urllib.error.HTTPError as exc:
+            print(f"  HTTP-FEHLER {exc.code}: {exc.read().decode('utf-8', 'replace')[:300]}")
+            continue
         except Exception as exc:  # noqa: BLE001
             print(f"  FEHLER bei der Erklaerung: {exc}")
             continue
