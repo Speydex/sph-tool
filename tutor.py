@@ -1,13 +1,12 @@
-"""KI-Tutor mit Google Gemini (kostenlose API): erklaert offene Hausaufgaben
-- loest sie NICHT.
+"""KI-Tutor mit Groq (kostenlose API): erklaert offene Hausaufgaben - loest sie NICHT.
 
-Liest output/offen_status.json, schickt jede offene Aufgabe an Gemini mit der
-klaren Anweisung, nur zu ERKLAEREN (Loesungsweg, Konzepte, Tipps) und KEINE
-fertige Loesung zu liefern, und sendet die Erklaerung per WhatsApp.
+Liest output/offen_status.json, schickt jede offene Aufgabe an ein Modell auf
+Groq mit der klaren Anweisung, nur zu ERKLAEREN (Loesungsweg, Konzepte, Tipps)
+und KEINE fertige Loesung zu liefern, und sendet die Erklaerung per WhatsApp.
 
-Braucht einen kostenlosen Gemini-Schluessel in der Umgebung:
-    GEMINI_API_KEY=...          (von https://aistudio.google.com)
-    GEMINI_MODEL=gemini-2.5-flash   (optional, Standardmodell)
+Braucht einen kostenlosen Groq-Schluessel in der Umgebung:
+    GROQ_API_KEY=gsk_...            (von https://console.groq.com)
+    GROQ_MODEL=llama-3.3-70b-versatile   (optional, Standardmodell)
 
 Anti-Spam: bereits erklaerte Aufgaben werden in state/explained_homework.txt
 gemerkt und nicht erneut erklaert.
@@ -25,7 +24,9 @@ from notify import send_whatsapp
 
 STATUS_FILE = config.OUTPUT_DIR / "offen_status.json"
 
-DEFAULT_MODEL = "gemini-2.5-flash"
+# OpenAI-kompatibler Endpunkt von Groq.
+API_URL = "https://api.groq.com/openai/v1/chat/completions"
+DEFAULT_MODEL = "llama-3.3-70b-versatile"
 SYSTEM_PROMPT = (
     "Du bist ein geduldiger Tutor fuer einen Schueler der 8. Klasse. "
     "Erklaere die gestellte Hausaufgabe so, dass der Schueler sie SELBST loesen kann: "
@@ -55,48 +56,51 @@ def _save_explained(sigs: set[str]) -> None:
 
 
 def erklaere(api_key: str, model: str, kurs: str, thema: str, hausaufgabe: str) -> str:
-    """Ruft die Gemini-REST-API auf und gibt die Erklaerung zurueck."""
+    """Ruft die Groq-Chat-API (OpenAI-kompatibel) auf und gibt die Erklaerung zurueck."""
     frage = (
         f"Fach: {kurs}\n"
         f"Thema: {thema}\n"
         f"Aufgabenstellung: {hausaufgabe}\n\n"
         "Erklaere mir, was ich machen muss und wie ich rangehe."
     )
-    url = (
-        f"https://generativelanguage.googleapis.com/v1beta/models/{model}:generateContent"
-    )
     body = {
-        "systemInstruction": {"parts": [{"text": SYSTEM_PROMPT}]},
-        "contents": [{"role": "user", "parts": [{"text": frage}]}],
-        "generationConfig": {"temperature": 0.7, "maxOutputTokens": 1200},
+        "model": model,
+        "messages": [
+            {"role": "system", "content": SYSTEM_PROMPT},
+            {"role": "user", "content": frage},
+        ],
+        "temperature": 0.7,
+        "max_tokens": 1200,
     }
     data = json.dumps(body).encode("utf-8")
     req = urllib.request.Request(
-        url,
+        API_URL,
         data=data,
-        headers={"Content-Type": "application/json", "x-goog-api-key": api_key},
+        headers={
+            "Content-Type": "application/json",
+            "Authorization": f"Bearer {api_key}",
+        },
         method="POST",
     )
     with urllib.request.urlopen(req, timeout=60) as resp:
         out = json.loads(resp.read().decode("utf-8"))
 
-    candidates = out.get("candidates", [])
-    if not candidates:
-        raise RuntimeError(f"Keine Antwort von Gemini (evtl. blockiert): {out}")
-    parts = candidates[0].get("content", {}).get("parts", [])
-    text = "".join(p.get("text", "") for p in parts).strip()
+    choices = out.get("choices", [])
+    if not choices:
+        raise RuntimeError(f"Keine Antwort von Groq: {out}")
+    text = (choices[0].get("message", {}).get("content") or "").strip()
     if not text:
-        raise RuntimeError(f"Leere Antwort von Gemini: {out}")
+        raise RuntimeError(f"Leere Antwort von Groq: {out}")
     return text
 
 
 def main() -> int:
-    api_key = os.getenv("GEMINI_API_KEY", "").strip()
+    api_key = os.getenv("GROQ_API_KEY", "").strip()
     if not api_key:
-        print("Kein GEMINI_API_KEY gesetzt - Tutor wird uebersprungen.")
+        print("Kein GROQ_API_KEY gesetzt - Tutor wird uebersprungen.")
         return 0
 
-    model = os.getenv("GEMINI_MODEL", DEFAULT_MODEL).strip() or DEFAULT_MODEL
+    model = os.getenv("GROQ_MODEL", DEFAULT_MODEL).strip() or DEFAULT_MODEL
     phone = os.getenv("CALLMEBOT_PHONE", "").strip()
     apikey_wa = os.getenv("CALLMEBOT_APIKEY", "").strip()
 
