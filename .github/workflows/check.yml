@@ -1,13 +1,17 @@
 name: SPH Hausaufgaben-Check
 
-# Laeuft rund um die Uhr alle 30 Minuten in der GitHub-Cloud (PC muss NICHT an
-# sein). Dank Anti-Spam (Signatur) kommt eine WhatsApp nur, wenn sich wirklich
-# etwas geaendert hat. Alle 30 Min haelt die kostenlosen GitHub-Minuten ein
-# (ca. 2000/Monat); kuerzere Intervalle wuerden das Gratis-Budget sprengen.
+# Laeuft alle 2 Stunden + zusaetzlich um 7 Uhr morgens (PC muss NICHT an sein).
+# Dank Anti-Spam (Signatur) kommt eine WhatsApp nur, wenn sich wirklich etwas
+# geaendert hat.
+# cron-Zeiten sind in UTC; eingestellt fuer Sommerzeit (CEST = UTC+2):
+#   "0 */2 * * *" -> alle geraden Stunden lokal (0,2,4,...,22 Uhr)
+#   "0 5 * * *"   -> 7:00 Uhr lokal
+# In der Winterzeit (CET = UTC+1) ist es jeweils 1 Stunde frueher.
 # Hinweis: GitHub startet cron-Jobs manchmal 5-15 Min spaeter - das ist normal.
 on:
   schedule:
-    - cron: "*/30 * * * *"
+    - cron: "0 */2 * * *"
+    - cron: "0 5 * * *"
   workflow_dispatch: {}   # erlaubt manuelles Starten per Knopfdruck
 
 jobs:
