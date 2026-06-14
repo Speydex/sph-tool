@@ -138,7 +138,13 @@ def main() -> int:
             print(f"  FEHLER bei der Erklaerung: {exc}")
             continue
 
-        nachricht = f"\U0001F393 {kurs} – Hilfe zur Aufgabe\n{thema}\n\n{erklaerung}"
+        nachricht = (
+            "\U0001F393 Hilfe zur Hausaufgabe\n"
+            f"\U0001F4DA Fach: {kurs}\n"
+            f"\U0001F4DD Aufgabe: {ha}"
+            + (f"\n\U0001F5D3 {thema}" if thema else "")
+            + f"\n\n{erklaerung}"
+        )
         print("--- Erklaerung ---")
         print(erklaerung)
 
