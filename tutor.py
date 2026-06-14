@@ -79,6 +79,9 @@ def erklaere(api_key: str, model: str, kurs: str, thema: str, hausaufgabe: str) 
         headers={
             "Content-Type": "application/json",
             "Authorization": f"Bearer {api_key}",
+            # Cloudflare (vor Groq) blockt die Standard-"Python-urllib"-Kennung
+            # mit Fehler 1010 - daher einen normalen User-Agent mitschicken.
+            "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) sph-tool/1.0",
         },
         method="POST",
     )
