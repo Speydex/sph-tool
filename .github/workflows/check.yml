@@ -23,6 +23,7 @@ jobs:
       SPH_SCHOOL_ID: ${{ secrets.SPH_SCHOOL_ID }}
       CALLMEBOT_PHONE: ${{ secrets.CALLMEBOT_PHONE }}
       CALLMEBOT_APIKEY: ${{ secrets.CALLMEBOT_APIKEY }}
+      ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
     steps:
       - uses: actions/checkout@v4
 
@@ -51,3 +52,6 @@ jobs:
 
       - name: WhatsApp-Benachrichtigung bei offenen Aufgaben
         run: python notify.py
+
+      - name: KI-Tutor erklaert offene Hausaufgaben (loest nicht)
+        run: python tutor.py

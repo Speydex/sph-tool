@@ -64,6 +64,7 @@ DOWNLOAD_DIR = PROJECT_DIR / "downloads"
 STATE_DIR = PROJECT_DIR / "state"        # merkt sich, was schon gemeldet wurde
 STORAGE_STATE = PROJECT_DIR / "storage_state.json"
 SIGNATURE_FILE = STATE_DIR / "last_signature.txt"
+EXPLAINED_FILE = STATE_DIR / "explained_homework.txt"  # schon erklaerte Aufgaben
 
 for _d in (OUTPUT_DIR, DEBUG_DIR, DOWNLOAD_DIR, STATE_DIR):
     _d.mkdir(exist_ok=True)
