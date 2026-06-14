@@ -1,17 +1,13 @@
 name: SPH Hausaufgaben-Check
 
-# Laeuft 3x taeglich in der GitHub-Cloud (PC muss NICHT an sein).
-# WICHTIG: cron-Zeiten sind in UTC. Eingestellt fuer Sommerzeit (CEST = UTC+2):
-#   11:00 UTC = 13:00 Uhr
-#   13:00 UTC = 15:00 Uhr
-#   16:00 UTC = 18:00 Uhr
-# In der Winterzeit (CET = UTC+1) ist es jeweils 1 Stunde frueher (12/14/17 Uhr).
+# Laeuft rund um die Uhr alle 30 Minuten in der GitHub-Cloud (PC muss NICHT an
+# sein). Dank Anti-Spam (Signatur) kommt eine WhatsApp nur, wenn sich wirklich
+# etwas geaendert hat. Alle 30 Min haelt die kostenlosen GitHub-Minuten ein
+# (ca. 2000/Monat); kuerzere Intervalle wuerden das Gratis-Budget sprengen.
 # Hinweis: GitHub startet cron-Jobs manchmal 5-15 Min spaeter - das ist normal.
 on:
   schedule:
-    - cron: "0 11 * * *"
-    - cron: "0 13 * * *"
-    - cron: "0 16 * * *"
+    - cron: "*/30 * * * *"
   workflow_dispatch: {}   # erlaubt manuelles Starten per Knopfdruck
 
 jobs:
@@ -40,6 +36,14 @@ jobs:
           key: sph-state-${{ github.run_id }}
           restore-keys: |
             sph-state-
+
+      # Browser (Chromium) zwischen Laeufen zwischenspeichern -> spart pro Lauf
+      # ~30s Download und damit kostenlose GitHub-Minuten.
+      - name: Playwright-Browser-Cache
+        uses: actions/cache@v4
+        with:
+          path: ~/.cache/ms-playwright
+          key: playwright-chromium-1.49.0
 
       - name: Abhaengigkeiten installieren
         run: |
