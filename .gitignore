@@ -1,0 +1,16 @@
+# Zugangsdaten - NIEMALS einchecken
+.env
+
+# Gespeicherte Login-Session (enthält Cookies = sensibel)
+storage_state.json
+
+# Python
+.venv/
+__pycache__/
+*.pyc
+
+# Ausgaben & Debug-Artefakte
+output/
+debug/
+downloads/
+logs/

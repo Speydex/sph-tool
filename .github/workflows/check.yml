@@ -1,0 +1,43 @@
+name: SPH Hausaufgaben-Check
+
+# Laeuft 3x taeglich in der GitHub-Cloud (PC muss NICHT an sein).
+# WICHTIG: cron-Zeiten sind in UTC. Eingestellt fuer Sommerzeit (CEST = UTC+2):
+#   11:00 UTC = 13:00 Uhr
+#   13:00 UTC = 15:00 Uhr
+#   16:00 UTC = 18:00 Uhr
+# In der Winterzeit (CET = UTC+1) ist es jeweils 1 Stunde frueher (12/14/17 Uhr).
+# Hinweis: GitHub startet cron-Jobs manchmal 5-15 Min spaeter - das ist normal.
+on:
+  schedule:
+    - cron: "0 11 * * *"
+    - cron: "0 13 * * *"
+    - cron: "0 16 * * *"
+  workflow_dispatch: {}   # erlaubt manuelles Starten per Knopfdruck
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    env:
+      SPH_USERNAME: ${{ secrets.SPH_USERNAME }}
+      SPH_PASSWORD: ${{ secrets.SPH_PASSWORD }}
+      SPH_SCHOOL_ID: ${{ secrets.SPH_SCHOOL_ID }}
+      CALLMEBOT_PHONE: ${{ secrets.CALLMEBOT_PHONE }}
+      CALLMEBOT_APIKEY: ${{ secrets.CALLMEBOT_APIKEY }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Abhaengigkeiten installieren
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+          python -m playwright install --with-deps chromium
+
+      - name: Mein Unterricht auslesen
+        run: python offene_aufgaben.py --headless
+
+      - name: WhatsApp-Benachrichtigung bei offenen Aufgaben
+        run: python notify.py
