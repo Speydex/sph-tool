@@ -78,7 +78,10 @@ def scrape_mein_unterricht(page: Page) -> list[Aufgabe]:
         if hw_loc.count():
             hausaufgabe = (hw_loc.first.text_content() or "").strip()
 
-        erledigt = row.locator(".homework .done").count() > 0
+        # 'erledigt' ist nur dann wahr, wenn das "erledigt"-Label SICHTBAR ist
+        # (nicht .hidden). Bei offenen Aufgaben ist .done versteckt und es gibt
+        # stattdessen einen .undone-Knopf ("als erledigt markieren").
+        erledigt = row.locator(".homework .done:not(.hidden)").count() > 0
 
         # Link zur Kursmappe (absolut machen).
         href_loc = row.locator("a[href*='sus_view']")

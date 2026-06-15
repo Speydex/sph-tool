@@ -69,16 +69,29 @@ def perform_login(page: Page) -> bool:
     """Fuehrt den Formular-Login durch. Gibt True bei Erfolg zurueck."""
     print(f"-> Oeffne Login-Seite: {config.LOGIN_URL}")
     page.goto(config.LOGIN_URL, wait_until="domcontentloaded")
+    # Die Login-Seite laedt teils per JS nach / leitet kurz um -> kurz warten,
+    # damit der Ausfuehrungskontext stabil ist.
+    try:
+        page.wait_for_load_state("networkidle", timeout=8000)
+    except PWTimeout:
+        pass
+
+    # Falls die Session noch gueltig ist, leitet die Login-Seite direkt zur
+    # Startseite um -> dann sind wir schon eingeloggt, kein Formular noetig.
+    if is_logged_in(page):
+        print("-> Bereits eingeloggt (gueltige Session).")
+        return True
 
     # Cookie-/Consent-Banner wegklicken, falls vorhanden (best effort).
+    # Komplett in try/except, weil eine Navigation den Kontext zerstoeren kann.
     for txt in ("Alle akzeptieren", "Akzeptieren", "Einverstanden", "OK"):
-        btn = page.get_by_role("button", name=txt)
-        if btn.count() > 0:
-            try:
+        try:
+            btn = page.get_by_role("button", name=txt)
+            if btn.count() > 0:
                 btn.first.click(timeout=2000)
                 break
-            except PWTimeout:
-                pass
+        except Exception:  # noqa: BLE001 - Banner ist optional, nie kritisch
+            pass
 
     ok_user = _fill_first(page, config.USERNAME_SELECTORS, config.USERNAME, "Benutzername")
     ok_pass = _fill_first(page, config.PASSWORD_SELECTORS, config.PASSWORD, "Passwort")
@@ -119,6 +132,10 @@ def ensure_logged_in(context: BrowserContext, page: Page) -> bool:
     """Stellt sicher, dass wir eingeloggt sind; nutzt ggf. gespeicherte Session."""
     # Versuch ueber gespeicherte Session: direkt eine geschuetzte Seite testen.
     page.goto(config.MEIN_UNTERRICHT_URL, wait_until="domcontentloaded")
+    try:
+        page.wait_for_load_state("networkidle", timeout=8000)
+    except PWTimeout:
+        pass
     if is_logged_in(page):
         print("-> Bestehende Session gueltig, kein erneuter Login noetig.")
         return True
