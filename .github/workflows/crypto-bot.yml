@@ -1,8 +1,9 @@
 name: Krypto-Test-Trading-Bot
 
-# Beobachtet den Kurs (SMA-Crossover, siehe strategy.py) und kauft/verkauft
-# automatisch auf einem Bybit-Demo-Trading-Konto (virtuelles Geld, echte
-# Marktpreise). Laeuft alle 15 Minuten passend zur Kerzengroesse.
+# Reine Simulation - kein Boersen-Account, kein API-Key, kein echtes Geld.
+# Holt den aktuellen Kurs (CoinGecko, oeffentlich) und entscheidet per
+# SMA-Crossover-Strategie (siehe strategy.py), ob virtuell gekauft/verkauft
+# wird. Laeuft alle 15 Minuten.
 on:
   schedule:
     - cron: "*/15 * * * *"
@@ -12,8 +13,6 @@ jobs:
   trade:
     runs-on: ubuntu-latest
     env:
-      BYBIT_API_KEY: ${{ secrets.BYBIT_API_KEY }}
-      BYBIT_API_SECRET: ${{ secrets.BYBIT_API_SECRET }}
       CALLMEBOT_PHONE: ${{ secrets.CALLMEBOT_PHONE }}
       CALLMEBOT_APIKEY: ${{ secrets.CALLMEBOT_APIKEY }}
     steps:
@@ -23,7 +22,7 @@ jobs:
         with:
           python-version: "3.12"
 
-      # Merkt sich zwischen den Laeufen, ob der Bot aktuell "im Markt" ist.
+      # Merkt sich zwischen den Laeufen die Kurs-Historie und das virtuelle Depot.
       - name: Status-Cache wiederherstellen
         uses: actions/cache@v4
         with:
@@ -37,5 +36,5 @@ jobs:
           python -m pip install --upgrade pip
           pip install -r requirements.txt
 
-      - name: Kurs pruefen und ggf. handeln
+      - name: Kurs pruefen und ggf. (virtuell) handeln
         run: python crypto_bot.py

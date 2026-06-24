@@ -1,13 +1,10 @@
-"""Krypto-Test-Trading-Bot: beobachtet den Kurs und kauft/verkauft automatisch
-auf einem Bybit-Demo-Trading-Konto (virtuelles Geld, echte Marktpreise).
+"""Krypto-Test-Bot: reine Simulation, kein echtes Konto, kein echtes Geld.
 
-Strategie: SMA-Crossover (siehe strategy.py). Der Bot merkt sich seine
-Position in state/crypto_position.json, damit er zwischen den Laeufen weiss,
-ob er aktuell "im Markt" ist.
-
-WICHTIG: Demo-/Lern-Tool. Keine Anlageberatung und keine Gewinngarantie -
-echte Maerkte koennen sich jederzeit anders verhalten als die Strategie
-erwartet.
+Holt den aktuellen Kurs von der oeffentlichen CoinGecko-API (kein Login),
+baut sich daraus selbst eine Kurs-Historie auf (state/crypto_prices.json)
+und entscheidet per SMA-Crossover-Strategie (strategy.py), ob virtuell
+gekauft oder verkauft wird. Das virtuelle Depot steht in
+state/crypto_portfolio.json - es fliesst nirgends echtes Geld.
 """
 from __future__ import annotations
 
@@ -15,20 +12,22 @@ import json
 import os
 import urllib.parse
 import urllib.request
+from pathlib import Path
+from typing import Any
 
 import crypto_config as cfg
-from bybit_client import BybitClient
+from price_feed import get_price
 from strategy import Signal, compute_signal
 
 
-def load_position() -> dict:
-    if cfg.POSITION_FILE.exists():
-        return json.loads(cfg.POSITION_FILE.read_text(encoding="utf-8"))
-    return {"in_position": False, "qty": "0", "entry_price": 0.0}
+def load_json(path: Path, default: Any) -> Any:
+    if path.exists():
+        return json.loads(path.read_text(encoding="utf-8"))
+    return default
 
 
-def save_position(position: dict) -> None:
-    cfg.POSITION_FILE.write_text(json.dumps(position, indent=2), encoding="utf-8")
+def save_json(path: Path, data: Any) -> None:
+    path.write_text(json.dumps(data, indent=2), encoding="utf-8")
 
 
 def notify(text: str) -> None:
@@ -46,45 +45,48 @@ def notify(text: str) -> None:
 
 
 def main() -> int:
-    cfg.check_credentials()
-    client = BybitClient(cfg.BYBIT_API_KEY, cfg.BYBIT_API_SECRET, cfg.BYBIT_BASE_URL)
+    price = get_price(cfg.COIN_ID, cfg.VS_CURRENCY)
 
-    klines = client.get_klines(cfg.CATEGORY, cfg.SYMBOL, cfg.INTERVAL, limit=max(cfg.SMA_LONG * 2, 50))
-    closes = [float(k[4]) for k in klines]
-    last_price = closes[-1]
+    history = load_json(cfg.PRICES_FILE, [])
+    history.append(price)
+    history = history[-cfg.MAX_HISTORY :]
+    save_json(cfg.PRICES_FILE, history)
 
-    signal = compute_signal(closes, cfg.SMA_SHORT, cfg.SMA_LONG)
-    position = load_position()
-    print(f"{cfg.SYMBOL}: Kurs={last_price:.2f}  Signal={signal.value}  In Position={position['in_position']}")
+    portfolio = load_json(
+        cfg.PORTFOLIO_FILE,
+        {"usdt_balance": cfg.START_BALANCE, "coin_qty": 0.0, "in_position": False, "entry_price": 0.0},
+    )
 
-    if signal == Signal.BUY and not position["in_position"]:
-        order = client.place_market_order(
-            cfg.CATEGORY, cfg.SYMBOL, "Buy", cfg.TRADE_USDT_AMOUNT, market_unit="quoteCoin",
-        )
-        filled = client.get_order(cfg.CATEGORY, order["orderId"])
-        qty = filled.get("cumExecQty", "0")
-        position = {"in_position": True, "qty": qty, "entry_price": last_price}
-        save_position(position)
-        msg = f"\U0001F7E2 Kauf {cfg.SYMBOL}: {qty} bei ~{last_price:.2f} (Demo-Konto)"
+    signal = compute_signal(history, cfg.SMA_SHORT, cfg.SMA_LONG)
+    print(
+        f"{cfg.COIN_ID}: Kurs={price:.2f} {cfg.VS_CURRENCY}  Signal={signal.value}  "
+        f"In Position={portfolio['in_position']}  Verlauf={len(history)} Werte"
+    )
+
+    if signal == Signal.BUY and not portfolio["in_position"]:
+        coin_qty = portfolio["usdt_balance"] / price
+        portfolio = {"usdt_balance": 0.0, "coin_qty": coin_qty, "in_position": True, "entry_price": price}
+        msg = f"\U0001F7E2 (Simulation) Kauf {cfg.COIN_ID}: {coin_qty:.6f} bei ~{price:.2f} {cfg.VS_CURRENCY}"
         print(msg)
         notify(msg)
 
-    elif signal == Signal.SELL and position["in_position"]:
-        qty = position["qty"]
-        client.place_market_order(cfg.CATEGORY, cfg.SYMBOL, "Sell", qty, market_unit="baseCoin")
-        pnl_pct = (last_price / position["entry_price"] - 1) * 100 if position["entry_price"] else 0.0
+    elif signal == Signal.SELL and portfolio["in_position"]:
+        usdt_balance = portfolio["coin_qty"] * price
+        pnl_pct = (price / portfolio["entry_price"] - 1) * 100 if portfolio["entry_price"] else 0.0
         msg = (
-            f"\U0001F534 Verkauf {cfg.SYMBOL}: {qty} bei ~{last_price:.2f} "
-            f"(Demo-Konto, {pnl_pct:+.2f}% seit Kauf)"
+            f"\U0001F534 (Simulation) Verkauf {cfg.COIN_ID}: {portfolio['coin_qty']:.6f} bei ~{price:.2f} "
+            f"{cfg.VS_CURRENCY} ({pnl_pct:+.2f}% seit Kauf)"
         )
-        position = {"in_position": False, "qty": "0", "entry_price": 0.0}
-        save_position(position)
+        portfolio = {"usdt_balance": usdt_balance, "coin_qty": 0.0, "in_position": False, "entry_price": 0.0}
         print(msg)
         notify(msg)
 
     else:
-        print("  Keine Aktion (Signal passt nicht zur aktuellen Position).")
+        print("  Keine Aktion.")
 
+    total_value = portfolio["usdt_balance"] + portfolio["coin_qty"] * price
+    print(f"  Virtuelles Depot: {total_value:.2f} {cfg.VS_CURRENCY} (Start: {cfg.START_BALANCE:.2f})")
+    save_json(cfg.PORTFOLIO_FILE, portfolio)
     return 0
 
 
