@@ -1,0 +1,40 @@
+name: Krypto-Test-Trading-Bot
+
+# Reine Simulation - kein Boersen-Account, kein API-Key, kein echtes Geld.
+# Holt den aktuellen Kurs (CoinGecko, oeffentlich) und entscheidet per
+# SMA-Crossover-Strategie (siehe strategy.py), ob virtuell gekauft/verkauft
+# wird. Laeuft alle 15 Minuten.
+on:
+  schedule:
+    - cron: "*/15 * * * *"
+  workflow_dispatch: {}
+
+jobs:
+  trade:
+    runs-on: ubuntu-latest
+    env:
+      CALLMEBOT_PHONE: ${{ secrets.CALLMEBOT_PHONE }}
+      CALLMEBOT_APIKEY: ${{ secrets.CALLMEBOT_APIKEY }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      # Merkt sich zwischen den Laeufen die Kurs-Historie und das virtuelle Depot.
+      - name: Status-Cache wiederherstellen
+        uses: actions/cache@v4
+        with:
+          path: state
+          key: crypto-state-${{ github.run_id }}
+          restore-keys: |
+            crypto-state-
+
+      - name: Abhaengigkeiten installieren
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+
+      - name: Kurs pruefen und ggf. (virtuell) handeln
+        run: python crypto_bot.py
