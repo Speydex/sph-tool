@@ -1,5 +1,4 @@
 const GEOCODING_URL = "https://geocoding-api.open-meteo.com/v1/search";
-const REVERSE_GEOCODING_URL = "https://api.bigdatacloud.net/data/reverse-geocode-client";
 const FORECAST_URL = "https://api.open-meteo.com/v1/forecast";
 
 const WEATHER_CODES = {
@@ -54,19 +53,6 @@ async function suche_ort(query) {
   }
   const o = data.results[0];
   return { name: o.name, land: o.country || "", lat: o.latitude, lon: o.longitude };
-}
-
-async function ort_von_koordinaten(lat, lon) {
-  const url = new URL(REVERSE_GEOCODING_URL);
-  url.searchParams.set("latitude", lat);
-  url.searchParams.set("longitude", lon);
-  url.searchParams.set("localityLanguage", "de");
-
-  const resp = await fetch(url);
-  if (!resp.ok) throw new Error("Standort konnte nicht aufgelöst werden");
-  const data = await resp.json();
-  const name = data.city || data.locality || data.principalSubdivision || "Mein Standort";
-  return { name, land: data.countryName || "", lat, lon };
 }
 
 async function hole_wetter(ort) {
@@ -309,58 +295,11 @@ async function suche(query) {
   }
 }
 
-function standort_verwenden() {
-  const status = document.getElementById("status");
-
-  if (!navigator.geolocation) {
-    status.textContent = "Geolocation wird von diesem Browser nicht unterstützt.";
-    return;
-  }
-
-  document.getElementById("ergebnis").hidden = true;
-  status.textContent = "Standort wird ermittelt …";
-
-  navigator.geolocation.getCurrentPosition(
-    async (position) => {
-      try {
-        status.textContent = "Lade …";
-        const ort = await ort_von_koordinaten(
-          position.coords.latitude,
-          position.coords.longitude
-        );
-        await ort_anzeigen_und_speichern(ort);
-        status.textContent = "";
-      } catch (err) {
-        status.textContent = err.message;
-      }
-    },
-    (err) => {
-      status.textContent = geolocation_fehlertext(err);
-    },
-    { timeout: 15000 }
-  );
-}
-
-function geolocation_fehlertext(err) {
-  switch (err.code) {
-    case err.PERMISSION_DENIED:
-      return "Standortzugriff wurde blockiert. Bitte in den Website-Einstellungen deines Browsers die Standortfreigabe für diese Seite erlauben und erneut versuchen.";
-    case err.POSITION_UNAVAILABLE:
-      return "Standort konnte nicht bestimmt werden. Prüfe, ob Ortungsdienste auf deinem Gerät/Betriebssystem aktiviert sind.";
-    case err.TIMEOUT:
-      return "Zeitüberschreitung bei der Standortermittlung. Bitte erneut versuchen.";
-    default:
-      return "Standort konnte nicht ermittelt werden. Bitte Berechtigung erteilen.";
-  }
-}
-
 document.getElementById("suchform").addEventListener("submit", (e) => {
   e.preventDefault();
   const query = document.getElementById("ort-eingabe").value.trim();
   if (query) suche(query);
 });
-
-document.getElementById("standort-btn").addEventListener("click", standort_verwenden);
 
 // Gespeicherte Orte wiederherstellen, sonst Berlin als Standard anlegen.
 if (orte.length > 0) {
