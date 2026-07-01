@@ -111,17 +111,6 @@ h1 {
   gap: 8px;
 }
 
-#standort-btn {
-  flex: 0 0 auto;
-  padding: 10px 12px;
-  background: #f2f6ff;
-  border: 1px solid #dbe6ff;
-}
-
-#standort-btn:hover {
-  background: #e6eeff;
-}
-
 #ort-eingabe {
   flex: 1;
   padding: 10px 12px;
