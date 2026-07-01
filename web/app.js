@@ -334,12 +334,24 @@ function standort_verwenden() {
         status.textContent = err.message;
       }
     },
-    () => {
-      status.textContent =
-        "Standort konnte nicht ermittelt werden. Bitte Berechtigung erteilen.";
+    (err) => {
+      status.textContent = geolocation_fehlertext(err);
     },
-    { timeout: 10000 }
+    { timeout: 15000 }
   );
+}
+
+function geolocation_fehlertext(err) {
+  switch (err.code) {
+    case err.PERMISSION_DENIED:
+      return "Standortzugriff wurde blockiert. Bitte in den Website-Einstellungen deines Browsers die Standortfreigabe für diese Seite erlauben und erneut versuchen.";
+    case err.POSITION_UNAVAILABLE:
+      return "Standort konnte nicht bestimmt werden. Prüfe, ob Ortungsdienste auf deinem Gerät/Betriebssystem aktiviert sind.";
+    case err.TIMEOUT:
+      return "Zeitüberschreitung bei der Standortermittlung. Bitte erneut versuchen.";
+    default:
+      return "Standort konnte nicht ermittelt werden. Bitte Berechtigung erteilen.";
+  }
 }
 
 document.getElementById("suchform").addEventListener("submit", (e) => {
