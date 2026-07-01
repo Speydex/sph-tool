@@ -59,3 +59,15 @@ Schick mir den Dump, dann ziehe ich die Selektoren passend nach.
 - `.env` und `storage_state.json` (gespeicherte Session-Cookies) stehen in
   `.gitignore` und werden nie eingecheckt.
 - Behandle beide wie Passwörter.
+
+## Bonus: Wetter-App (`wetter.py`)
+
+Ein eigenständiges CLI-Tool, unabhängig vom Schulportal-Teil. Zeigt aktuelles
+Wetter + Vorhersage für einen Ort an, über die kostenlose
+[Open-Meteo](https://open-meteo.com)-API — **kein API-Key nötig**.
+
+```powershell
+python wetter.py Berlin
+python wetter.py "Frankfurt am Main"
+python wetter.py --tage 5 München
+```
