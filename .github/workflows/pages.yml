@@ -26,6 +26,15 @@ jobs:
 
       - uses: actions/configure-pages@v5
 
+      # Haengt die Commit-SHA als Versions-Query an app.js/style.css, damit
+      # Browser/CDN nach jedem Deploy garantiert die neuen Dateien laden
+      # statt alte JS/CSS-Versionen aus dem Cache zu bedienen.
+      - name: Cache-Busting fuer app.js und style.css
+        run: |
+          SHORT_SHA=${GITHUB_SHA::7}
+          sed -i "s/app\.js/app.js?v=${SHORT_SHA}/" web/index.html
+          sed -i "s/style\.css/style.css?v=${SHORT_SHA}/" web/index.html
+
       - uses: actions/upload-pages-artifact@v3
         with:
           path: web
