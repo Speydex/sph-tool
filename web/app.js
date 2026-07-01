@@ -162,6 +162,68 @@ function baue_stunden_panel(stunden, tagIndex) {
   return container;
 }
 
+const ORTE_SCHLUESSEL = "myweather-orte";
+const AKTIV_SCHLUESSEL = "myweather-aktiver-index";
+
+let orte = orte_laden();
+let aktiverIndex = Number(localStorage.getItem(AKTIV_SCHLUESSEL)) || 0;
+
+function orte_laden() {
+  try {
+    return JSON.parse(localStorage.getItem(ORTE_SCHLUESSEL)) || [];
+  } catch {
+    return [];
+  }
+}
+
+function orte_speichern() {
+  localStorage.setItem(ORTE_SCHLUESSEL, JSON.stringify(orte));
+  localStorage.setItem(AKTIV_SCHLUESSEL, String(aktiverIndex));
+}
+
+function render_tabs() {
+  const leiste = document.getElementById("tab-leiste");
+  leiste.innerHTML = "";
+
+  orte.forEach((ort, i) => {
+    const tab = document.createElement("button");
+    tab.type = "button";
+    tab.className = "tab" + (i === aktiverIndex ? " tab-aktiv" : "");
+    tab.textContent = ort.name;
+    tab.addEventListener("click", () => tab_anzeigen(i));
+    leiste.appendChild(tab);
+  });
+
+  const neuerTab = document.createElement("button");
+  neuerTab.type = "button";
+  neuerTab.className = "tab tab-neu";
+  neuerTab.textContent = "+";
+  neuerTab.title = "Weiteren Ort hinzufügen";
+  neuerTab.addEventListener("click", () => {
+    const eingabe = document.getElementById("ort-eingabe");
+    eingabe.value = "";
+    eingabe.focus();
+  });
+  leiste.appendChild(neuerTab);
+}
+
+async function tab_anzeigen(index) {
+  aktiverIndex = index;
+  orte_speichern();
+  render_tabs();
+
+  const status = document.getElementById("status");
+  document.getElementById("ergebnis").hidden = true;
+  status.textContent = "Lade …";
+  try {
+    const daten = await hole_wetter(orte[index]);
+    zeige_wetter(orte[index], daten);
+    status.textContent = "";
+  } catch (err) {
+    status.textContent = err.message;
+  }
+}
+
 async function suche(query) {
   const status = document.getElementById("status");
   document.getElementById("ergebnis").hidden = true;
@@ -169,6 +231,19 @@ async function suche(query) {
   try {
     const ort = await suche_ort(query);
     const daten = await hole_wetter(ort);
+
+    const vorhandenerIndex = orte.findIndex(
+      (o) => o.name === ort.name && o.land === ort.land
+    );
+    if (vorhandenerIndex === -1) {
+      orte.push(ort);
+      aktiverIndex = orte.length - 1;
+    } else {
+      aktiverIndex = vorhandenerIndex;
+    }
+    orte_speichern();
+    render_tabs();
+
     zeige_wetter(ort, daten);
     status.textContent = "";
   } catch (err) {
@@ -182,5 +257,11 @@ document.getElementById("suchform").addEventListener("submit", (e) => {
   if (query) suche(query);
 });
 
-// Beim Laden direkt einen Standardort anzeigen.
-suche("Berlin");
+// Gespeicherte Orte wiederherstellen, sonst Berlin als Standard anlegen.
+if (orte.length > 0) {
+  if (aktiverIndex >= orte.length) aktiverIndex = 0;
+  render_tabs();
+  tab_anzeigen(aktiverIndex);
+} else {
+  suche("Berlin");
+}
