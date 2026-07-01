@@ -1,0 +1,38 @@
+<!DOCTYPE html>
+<html lang="de">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Wetter-App</title>
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+  <main class="card">
+    <h1>🌦️ Wetter-App</h1>
+
+    <form id="suchform" autocomplete="off">
+      <input id="ort-eingabe" type="text" placeholder="Ort eingeben, z. B. Berlin" required>
+      <button type="submit">Suchen</button>
+    </form>
+
+    <p id="status"></p>
+
+    <section id="ergebnis" hidden>
+      <h2 id="ort-name"></h2>
+      <div class="aktuell">
+        <span id="aktuell-icon" class="icon"></span>
+        <span id="aktuell-temp" class="temp"></span>
+        <span id="aktuell-desc" class="desc"></span>
+      </div>
+      <div class="details">
+        <span id="aktuell-gefuehlt"></span>
+        <span id="aktuell-feuchte"></span>
+        <span id="aktuell-wind"></span>
+      </div>
+      <div id="vorhersage" class="vorhersage"></div>
+    </section>
+  </main>
+
+  <script src="app.js"></script>
+</body>
+</html>
