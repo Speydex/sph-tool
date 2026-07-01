@@ -111,9 +111,18 @@ button:hover {
   align-items: center;
   justify-content: space-between;
   background: #f2f6ff;
+  border: none;
   border-radius: 8px;
   padding: 8px 12px;
   font-size: 0.9rem;
+  font-family: inherit;
+  width: 100%;
+  cursor: pointer;
+  text-align: left;
+}
+
+.tag-zeile:hover {
+  background: #e6eeff;
 }
 
 .tag-zeile .wochentag {
@@ -133,4 +142,56 @@ button:hover {
 .tag-zeile .regen {
   color: #0072ff;
   font-size: 0.85rem;
+}
+
+.tag-zeile .pfeil {
+  color: #888;
+  font-size: 0.8rem;
+  transition: transform 0.2s ease;
+}
+
+.tag-zeile[aria-expanded="true"] .pfeil {
+  transform: rotate(180deg);
+}
+
+.stunden-panel {
+  overflow-x: auto;
+  margin: 2px 0 4px;
+}
+
+.stunden-liste {
+  display: flex;
+  gap: 8px;
+  padding: 8px 4px;
+}
+
+.stunde-zeile {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 4px;
+  background: #fafcff;
+  border: 1px solid #e6eeff;
+  border-radius: 8px;
+  padding: 8px 10px;
+  min-width: 56px;
+  font-size: 0.8rem;
+}
+
+.stunde-zeile .uhrzeit {
+  color: #666;
+}
+
+.stunde-zeile .icon {
+  font-size: 1.1rem;
+}
+
+.stunde-zeile .stunde-temp {
+  font-weight: 600;
+  color: #1a2b4c;
+}
+
+.stunde-zeile .regen {
+  color: #0072ff;
+  font-size: 0.75rem;
 }

@@ -67,6 +67,10 @@ async function hole_wetter(ort) {
     "daily",
     "weather_code,temperature_2m_max,temperature_2m_min,precipitation_probability_max"
   );
+  url.searchParams.set(
+    "hourly",
+    "temperature_2m,weather_code,precipitation_probability"
+  );
   url.searchParams.set("forecast_days", "5");
   url.searchParams.set("timezone", "auto");
 
@@ -93,6 +97,8 @@ function zeige_wetter(ort, daten) {
   const vorhersage = document.getElementById("vorhersage");
   vorhersage.innerHTML = "";
   const tage = daten.daily;
+  const stunden = daten.hourly;
+
   for (let i = 0; i < tage.time.length; i++) {
     const datum = new Date(tage.time[i] + "T00:00:00");
     const wt = WOCHENTAGE[datum.getDay()];
@@ -101,18 +107,59 @@ function zeige_wetter(ort, daten) {
     const tmin = Math.round(tage.temperature_2m_min[i]);
     const regen = Math.round(tage.precipitation_probability_max[i]);
 
-    const zeile = document.createElement("div");
+    const zeile = document.createElement("button");
+    zeile.type = "button";
     zeile.className = "tag-zeile";
+    zeile.setAttribute("aria-expanded", "false");
     zeile.innerHTML = `
       <span class="wochentag">${wt}</span>
       <span class="icon" title="${dDesc}">${dIcon}</span>
       <span class="temps">${tmin}° – ${tmax}°</span>
       <span class="regen">☔ ${regen}%</span>
+      <span class="pfeil">▾</span>
     `;
+
+    const stundenPanel = document.createElement("div");
+    stundenPanel.className = "stunden-panel";
+    stundenPanel.hidden = true;
+    stundenPanel.appendChild(baue_stunden_panel(stunden, i));
+
+    zeile.addEventListener("click", () => {
+      const offen = zeile.getAttribute("aria-expanded") === "true";
+      zeile.setAttribute("aria-expanded", String(!offen));
+      stundenPanel.hidden = offen;
+    });
+
     vorhersage.appendChild(zeile);
+    vorhersage.appendChild(stundenPanel);
   }
 
   document.getElementById("ergebnis").hidden = false;
+}
+
+function baue_stunden_panel(stunden, tagIndex) {
+  const start = tagIndex * 24;
+  const container = document.createElement("div");
+  container.className = "stunden-liste";
+
+  for (let h = start; h < start + 24; h++) {
+    if (!stunden.time[h]) continue;
+    const uhrzeit = stunden.time[h].slice(11, 16);
+    const [desc, icon] = beschreibung(stunden.weather_code[h]);
+    const temp = Math.round(stunden.temperature_2m[h]);
+    const regen = Math.round(stunden.precipitation_probability[h]);
+
+    const zeile = document.createElement("div");
+    zeile.className = "stunde-zeile";
+    zeile.innerHTML = `
+      <span class="uhrzeit">${uhrzeit}</span>
+      <span class="icon" title="${desc}">${icon}</span>
+      <span class="stunde-temp">${temp}°C</span>
+      <span class="regen">☔ ${regen}%</span>
+    `;
+    container.appendChild(zeile);
+  }
+  return container;
 }
 
 async function suche(query) {
