@@ -1,4 +1,5 @@
 const GEOCODING_URL = "https://geocoding-api.open-meteo.com/v1/search";
+const REVERSE_GEOCODING_URL = "https://api.bigdatacloud.net/data/reverse-geocode-client";
 const FORECAST_URL = "https://api.open-meteo.com/v1/forecast";
 
 const WEATHER_CODES = {
@@ -53,6 +54,19 @@ async function suche_ort(query) {
   }
   const o = data.results[0];
   return { name: o.name, land: o.country || "", lat: o.latitude, lon: o.longitude };
+}
+
+async function ort_von_koordinaten(lat, lon) {
+  const url = new URL(REVERSE_GEOCODING_URL);
+  url.searchParams.set("latitude", lat);
+  url.searchParams.set("longitude", lon);
+  url.searchParams.set("localityLanguage", "de");
+
+  const resp = await fetch(url);
+  if (!resp.ok) throw new Error("Standort konnte nicht aufgelöst werden");
+  const data = await resp.json();
+  const name = data.city || data.locality || data.principalSubdivision || "Mein Standort";
+  return { name, land: data.countryName || "", lat, lon };
 }
 
 async function hole_wetter(ort) {
@@ -186,12 +200,28 @@ function render_tabs() {
   leiste.innerHTML = "";
 
   orte.forEach((ort, i) => {
-    const tab = document.createElement("button");
-    tab.type = "button";
-    tab.className = "tab" + (i === aktiverIndex ? " tab-aktiv" : "");
-    tab.textContent = ort.name;
-    tab.addEventListener("click", () => tab_anzeigen(i));
-    leiste.appendChild(tab);
+    const wrapper = document.createElement("div");
+    wrapper.className = "tab-wrapper" + (i === aktiverIndex ? " tab-aktiv" : "");
+
+    const auswahl = document.createElement("button");
+    auswahl.type = "button";
+    auswahl.className = "tab-select";
+    auswahl.textContent = ort.name;
+    auswahl.addEventListener("click", () => tab_anzeigen(i));
+
+    const schliessen = document.createElement("button");
+    schliessen.type = "button";
+    schliessen.className = "tab-close";
+    schliessen.textContent = "×";
+    schliessen.title = "Tab schließen";
+    schliessen.addEventListener("click", (e) => {
+      e.stopPropagation();
+      tab_schliessen(i);
+    });
+
+    wrapper.appendChild(auswahl);
+    wrapper.appendChild(schliessen);
+    leiste.appendChild(wrapper);
   });
 
   const neuerTab = document.createElement("button");
@@ -224,31 +254,92 @@ async function tab_anzeigen(index) {
   }
 }
 
+function tab_schliessen(i) {
+  orte.splice(i, 1);
+
+  if (orte.length === 0) {
+    aktiverIndex = 0;
+    orte_speichern();
+    render_tabs();
+    document.getElementById("ergebnis").hidden = true;
+    document.getElementById("status").textContent =
+      'Noch keine Orte – klicke auf "+", um einen hinzuzufügen.';
+    return;
+  }
+
+  if (i < aktiverIndex) {
+    aktiverIndex--;
+  } else if (aktiverIndex >= orte.length) {
+    aktiverIndex = orte.length - 1;
+  }
+  tab_anzeigen(aktiverIndex);
+}
+
+// Ladet Wetterdaten fuer `ort`, legt dafuer einen Tab an (oder aktiviert den
+// bestehenden) und zeigt das Ergebnis an. Gemeinsame Logik fuer Textsuche
+// und Standort-Erkennung.
+async function ort_anzeigen_und_speichern(ort) {
+  const daten = await hole_wetter(ort);
+
+  const vorhandenerIndex = orte.findIndex(
+    (o) => o.name === ort.name && o.land === ort.land
+  );
+  if (vorhandenerIndex === -1) {
+    orte.push(ort);
+    aktiverIndex = orte.length - 1;
+  } else {
+    aktiverIndex = vorhandenerIndex;
+  }
+  orte_speichern();
+  render_tabs();
+
+  zeige_wetter(ort, daten);
+}
+
 async function suche(query) {
   const status = document.getElementById("status");
   document.getElementById("ergebnis").hidden = true;
   status.textContent = "Lade …";
   try {
     const ort = await suche_ort(query);
-    const daten = await hole_wetter(ort);
-
-    const vorhandenerIndex = orte.findIndex(
-      (o) => o.name === ort.name && o.land === ort.land
-    );
-    if (vorhandenerIndex === -1) {
-      orte.push(ort);
-      aktiverIndex = orte.length - 1;
-    } else {
-      aktiverIndex = vorhandenerIndex;
-    }
-    orte_speichern();
-    render_tabs();
-
-    zeige_wetter(ort, daten);
+    await ort_anzeigen_und_speichern(ort);
     status.textContent = "";
   } catch (err) {
     status.textContent = err.message;
   }
+}
+
+function standort_verwenden() {
+  const status = document.getElementById("status");
+
+  if (!navigator.geolocation) {
+    status.textContent = "Geolocation wird von diesem Browser nicht unterstützt.";
+    return;
+  }
+
+  document.getElementById("ergebnis").hidden = true;
+  status.textContent = "Standort wird ermittelt …";
+
+  navigator.geolocation.getCurrentPosition(
+    async (position) => {
+      try {
+        status.textContent = "Lade …";
+        const ort = await ort_von_koordinaten(
+          position.coords.latitude,
+          position.coords.longitude
+        );
+        await ort_anzeigen_und_speichern(ort);
+        status.textContent = "";
+      } catch (err) {
+        status.textContent = err.message;
+      }
+    },
+    () => {
+      status.textContent =
+        "Standort konnte nicht ermittelt werden. Bitte Berechtigung erteilen.";
+    },
+    { timeout: 10000 }
+  );
 }
 
 document.getElementById("suchform").addEventListener("submit", (e) => {
@@ -256,6 +347,8 @@ document.getElementById("suchform").addEventListener("submit", (e) => {
   const query = document.getElementById("ort-eingabe").value.trim();
   if (query) suche(query);
 });
+
+document.getElementById("standort-btn").addEventListener("click", standort_verwenden);
 
 // Gespeicherte Orte wiederherstellen, sonst Berlin als Standard anlegen.
 if (orte.length > 0) {
