@@ -288,6 +288,11 @@
 
         <div class="casino-game">
           <h3>🎡 Roulette</h3>
+          <div class="wheel-wrap">
+            <div class="wheel-pointer">▼</div>
+            <div class="wheel" id="roulette-wheel"></div>
+            <div class="wheel-hub"></div>
+          </div>
           <div class="roulette-result" id="roulette-result">—</div>
           <div class="roulette-history" id="roulette-history"></div>
           <div class="casino-controls">
@@ -316,11 +321,30 @@
 
         <div class="casino-game">
           <h3>🎰 Spielautomat</h3>
-          <div class="slots-reels" id="slots-reels"><span>❓</span><span>❓</span><span>❓</span></div>
+          <div class="slots-reels" id="slots-reels">
+            <span class="slot-reel">❓</span><span class="slot-reel">❓</span><span class="slot-reel">❓</span>
+          </div>
           <div class="slots-result" id="slots-result"></div>
           <div class="casino-controls">
             <label>Einsatz (€)<input type="number" id="slots-stake" value="200" min="10" step="10"></label>
             <button class="btn btn-primary" id="slots-spin">🎰 Spin</button>
+          </div>
+        </div>
+
+        <div class="casino-game">
+          <h3>🎲 Würfel</h3>
+          <div class="dice-display"><span class="die" id="dice-die1">⚀</span><span class="die" id="dice-die2">⚀</span></div>
+          <div class="slots-result" id="dice-result"></div>
+          <div class="casino-controls">
+            <label>Einsatz (€)<input type="number" id="dice-stake" value="200" min="10" step="10"></label>
+            <label>Wette
+              <div class="casino-choice-row" id="dice-bet-value">
+                <button class="btn casino-choice active" data-val="low">Tief 2–6 (2,15x)</button>
+                <button class="btn casino-choice" data-val="seven">Sieben (5x)</button>
+                <button class="btn casino-choice" data-val="high">Hoch 8–12 (2,15x)</button>
+              </div>
+            </label>
+            <button class="btn btn-primary" id="dice-roll">🎲 Würfeln</button>
           </div>
         </div>
 
@@ -330,6 +354,10 @@
     <!-- ================= STATISTIK ================= -->
     <section class="panel" id="panel-stats">
       <div class="stats-grid" id="stats-grid"></div>
+      <div class="leaderboard-box">
+        <h3>🏆 Bestenliste (Top 20 nach Vermögen)</h3>
+        <div id="leaderboard-list" class="leaderboard-list"><p class="hint">Lädt…</p></div>
+      </div>
       <div class="prestige-box">
         <h3>♻️ Prestige / Ruhestand</h3>
         <p id="prestige-desc"></p>

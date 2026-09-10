@@ -127,14 +127,57 @@ let cloudSyncing = false;
 let cloudLastSyncedAt = 0;
 
 function cloudInit() {
-  if (typeof FIREBASE_CONFIGURED === "undefined" || !FIREBASE_CONFIGURED) return;
-  if (typeof firebase === "undefined") { console.warn("Firebase-SDK konnte nicht geladen werden — Cloud-Speicher deaktiviert."); return; }
+  if (typeof FIREBASE_CONFIGURED === "undefined" || !FIREBASE_CONFIGURED) { renderLeaderboardUnavailable(); return; }
+  if (typeof firebase === "undefined") { console.warn("Firebase-SDK konnte nicht geladen werden — Cloud-Speicher deaktiviert."); renderLeaderboardUnavailable(); return; }
   try {
     fbApp = firebase.initializeApp(FIREBASE_CONFIG);
     fbAuth = firebase.auth();
     fbDb = firebase.firestore();
     fbAuth.onAuthStateChanged(onCloudAuthChanged);
-  } catch (e) { console.warn("Firebase-Init fehlgeschlagen — Cloud-Speicher deaktiviert.", e); fbApp = null; }
+    initLeaderboard();
+  } catch (e) { console.warn("Firebase-Init fehlgeschlagen — Cloud-Speicher deaktiviert.", e); fbApp = null; renderLeaderboardUnavailable(); }
+}
+
+// ---- Bestenliste (öffentlich lesbar, jede*r schreibt nur den eigenen Eintrag) ----
+function leaderboardName(email) {
+  const prefix = (email || "Spieler").split("@")[0];
+  return (prefix.length > 3 ? prefix.slice(0, 3) : prefix) + "***";
+}
+function syncLeaderboard() {
+  if (!fbDb || !cloudUser) return;
+  fbDb.collection("leaderboard").doc(cloudUser.uid).set({
+    name: leaderboardName(cloudUser.email),
+    netWorth: netWorth(),
+    rank: rankFor(netWorth()).name,
+    updatedAtMs: now(),
+  }).catch(() => {});
+}
+function initLeaderboard() {
+  if (!fbDb) { renderLeaderboardUnavailable(); return; }
+  fbDb.collection("leaderboard").orderBy("netWorth", "desc").limit(20).onSnapshot(
+    (snap) => {
+      const rows = [];
+      snap.forEach((doc) => rows.push(Object.assign({ uid: doc.id }, doc.data())));
+      renderLeaderboard(rows);
+    },
+    () => renderLeaderboardUnavailable()
+  );
+}
+function renderLeaderboard(rows) {
+  const el = $("leaderboard-list");
+  if (!el) return;
+  if (!rows.length) { el.innerHTML = '<p class="hint">Noch keine Einträge — sei der Erste!</p>'; return; }
+  const medals = ["🥇", "🥈", "🥉"];
+  el.innerHTML = rows.map((r, i) => `
+    <div class="lb-row ${cloudUser && r.uid === cloudUser.uid ? "me" : ""}">
+      <span class="lb-rank">${medals[i] || "#" + (i + 1)}</span>
+      <span class="lb-name-wrap"><span class="lb-name">${r.name || "Spieler"}</span><span class="lb-title">${r.rank || ""}</span></span>
+      <span class="lb-worth">${fmtMoney(r.netWorth || 0)}</span>
+    </div>`).join("");
+}
+function renderLeaderboardUnavailable() {
+  const el = $("leaderboard-list");
+  if (el) el.innerHTML = '<p class="hint">Bestenliste braucht Cloud-Speicher — melde dich im Optionen-Tab an, um mitzumachen (Ansehen geht auch ohne Login).</p>';
 }
 
 function onCloudAuthChanged(user) {
@@ -200,6 +243,7 @@ async function cloudSaveNow(silent) {
       updatedAtMs: S.savedAt,
     });
     cloudLastSyncedAt = now();
+    syncLeaderboard();
     if (!silent) pushNotify("☁️ Gespeichert", "Dein Fortschritt wurde in die Cloud hochgeladen.");
   } catch (e) { if (!silent) pushNotify("⚠️ Sync fehlgeschlagen", "Cloud-Speichern hat nicht geklappt. Versuch's gleich nochmal."); }
   cloudSyncing = false;
@@ -1454,11 +1498,33 @@ function checkCasinoStake(id) {
   return stake;
 }
 
+// Gemeinsame Dreh-zu-Winkel-Mechanik fuer Rad-Spiele (Roulette + Gluecksrad):
+// dreht `el` so, dass `targetAngle` (Grad, im Uhrzeigersinn ab oben) am
+// Zeiger landet, plus ein paar volle Umdrehungen fuer den Spin-Effekt.
+function spinWheelToAngle(el, wheelState, targetAngle, extraSpins) {
+  const current = wheelState.rotation % 360;
+  const delta = ((-targetAngle - current) % 360 + 360) % 360;
+  wheelState.rotation += (extraSpins || 5 * 360) + delta;
+  el.style.transform = `rotate(${wheelState.rotation}deg)`;
+}
+
 // ---- Roulette (europäisch, 0-36, Standard-Quoten -> ~2,7% Hausvorteil) ----
 const ROULETTE_RED = new Set([1, 3, 5, 7, 9, 12, 14, 16, 18, 19, 21, 23, 25, 27, 30, 32, 34, 36]);
+// Echte physische Reihenfolge auf einem europäischen Roulette-Kessel (nicht 0-36 der Reihe nach).
+const ROULETTE_WHEEL_ORDER = [0, 32, 15, 19, 4, 21, 2, 25, 17, 34, 6, 27, 13, 36, 11, 30, 8, 23, 10, 5, 24, 16, 33, 1, 20, 14, 31, 9, 22, 18, 29, 7, 28, 12, 35, 3, 26];
 function rouletteColor(n) { return n === 0 ? "green" : ROULETTE_RED.has(n) ? "red" : "black"; }
 function rouletteColorLabel(c) { return c === "red" ? "Rot" : c === "black" ? "Schwarz" : "Grün"; }
+const rouletteWheelState = { rotation: 0 };
 
+function buildRouletteWheelGradient() {
+  const seg = 360 / ROULETTE_WHEEL_ORDER.length;
+  const stops = ROULETTE_WHEEL_ORDER.map((n, i) => {
+    const c = rouletteColor(n);
+    const hex = c === "red" ? "#ff4d6d" : c === "black" ? "#1a1d24" : "#2ee6a6";
+    return `${hex} ${(i * seg).toFixed(3)}deg ${((i + 1) * seg).toFixed(3)}deg`;
+  });
+  return `conic-gradient(${stops.join(", ")})`;
+}
 function updateRouletteBetUI() {
   const type = $("roulette-bet-type").value;
   const box = $("roulette-bet-value");
@@ -1481,36 +1547,38 @@ function spinRoulette() {
 
   $("roulette-spin").disabled = true;
   const resultEl = $("roulette-result");
-  let ticks = 0;
-  const iv = setInterval(() => {
-    resultEl.textContent = randInt(0, 36);
-    resultEl.className = "roulette-result spinning";
-    ticks++;
-    if (ticks > 16) {
-      clearInterval(iv);
-      const n = randInt(0, 36);
-      const color = rouletteColor(n);
-      resultEl.textContent = n;
-      resultEl.className = "roulette-result " + color;
-      let win = false, mult = 0;
-      if (type === "color" && betVal === color) { win = true; mult = 2; }
-      else if (type === "parity") {
-        const isEven = n !== 0 && n % 2 === 0;
-        if (n !== 0 && (betVal === "even") === isEven) { win = true; mult = 2; }
-      } else if (type === "dozen") {
-        const d = n === 0 ? 0 : Math.ceil(n / 12);
-        if (String(d) === betVal) { win = true; mult = 3; }
-      } else if (type === "number") {
-        if (n === betVal) { win = true; mult = 36; }
-      }
-      const net = resolveBet(stake, mult, $("roulette-spin"));
-      pushNotify(win ? "🎡 Gewonnen!" : "🎡 Verloren", `${n} (${rouletteColorLabel(color)}) — ${net >= 0 ? "+" : ""}${fmtMoney(net)}`);
-      S.rouletteHistory.unshift({ n, color });
-      S.rouletteHistory = S.rouletteHistory.slice(0, 14);
-      renderRouletteHistory();
-      $("roulette-spin").disabled = false;
+  resultEl.textContent = "…";
+  resultEl.className = "roulette-result spinning";
+
+  const n = randInt(0, 36);
+  const idx = ROULETTE_WHEEL_ORDER.indexOf(n);
+  const seg = 360 / ROULETTE_WHEEL_ORDER.length;
+  const targetAngle = idx * seg + seg / 2;
+  spinWheelToAngle($("roulette-wheel"), rouletteWheelState, targetAngle);
+  SND.click();
+
+  setTimeout(() => {
+    const color = rouletteColor(n);
+    resultEl.textContent = n;
+    resultEl.className = "roulette-result " + color;
+    let win = false, mult = 0;
+    if (type === "color" && betVal === color) { win = true; mult = 2; }
+    else if (type === "parity") {
+      const isEven = n !== 0 && n % 2 === 0;
+      if (n !== 0 && (betVal === "even") === isEven) { win = true; mult = 2; }
+    } else if (type === "dozen") {
+      const d = n === 0 ? 0 : Math.ceil(n / 12);
+      if (String(d) === betVal) { win = true; mult = 3; }
+    } else if (type === "number") {
+      if (n === betVal) { win = true; mult = 36; }
     }
-  }, 80);
+    const net = resolveBet(stake, mult, $("roulette-spin"));
+    pushNotify(win ? "🎡 Gewonnen!" : "🎡 Verloren", `${n} (${rouletteColorLabel(color)}) — ${net >= 0 ? "+" : ""}${fmtMoney(net)}`);
+    S.rouletteHistory.unshift({ n, color });
+    S.rouletteHistory = S.rouletteHistory.slice(0, 14);
+    renderRouletteHistory();
+    $("roulette-spin").disabled = false;
+  }, 3250);
 }
 function renderRouletteHistory() {
   const el = $("roulette-history");
@@ -1518,7 +1586,8 @@ function renderRouletteHistory() {
   el.innerHTML = S.rouletteHistory.map((h) => `<span class="roulette-chip ${h.color}">${h.n}</span>`).join("");
 }
 
-// ---- Blackjack (vereinfacht: Dealer zieht bis 17, keine Splits/Doubles) ----
+// ---- Blackjack (vereinfacht: Dealer zieht bis 17, keine Splits/Doubles;
+// beide Handwerte sind jederzeit sichtbar, keine verdeckte Karte) ----
 const CARD_SUITS = ["♠️", "♥️", "♦️", "♣️"];
 const CARD_RANKS = ["A", "2", "3", "4", "5", "6", "7", "8", "9", "10", "J", "Q", "K"];
 function drawCard() { return { rank: choice(CARD_RANKS), suit: choice(CARD_SUITS) }; }
@@ -1530,6 +1599,7 @@ function handValue(cards) {
   return total;
 }
 function cardStr(c) { return `${c.rank}${c.suit}`; }
+function cardColorClass(c) { return c.suit === "♥️" || c.suit === "♦️" ? "bj-card-red" : "bj-card-black"; }
 
 let bjState = null;
 function dealBlackjack() {
@@ -1571,10 +1641,10 @@ function renderBlackjack() {
   if (!bjState) { el.innerHTML = '<p class="hint">Setze einen Einsatz und gib die Karten.</p>'; return; }
   const pv = handValue(bjState.player), dv = handValue(bjState.dealer);
   el.innerHTML = `
-    <div class="bj-hand"><div class="bj-label">Dealer (${bjState.done ? dv : "?"})</div>
-      <div class="bj-cards">${bjState.dealer.map((c, i) => (i === 0 || bjState.done ? `<span class="bj-card">${cardStr(c)}</span>` : `<span class="bj-card back">🂠</span>`)).join("")}</div></div>
+    <div class="bj-hand"><div class="bj-label">Dealer (${dv})</div>
+      <div class="bj-cards">${bjState.dealer.map((c) => `<span class="bj-card ${cardColorClass(c)}">${cardStr(c)}</span>`).join("")}</div></div>
     <div class="bj-hand"><div class="bj-label">Du (${pv})</div>
-      <div class="bj-cards">${bjState.player.map((c) => `<span class="bj-card">${cardStr(c)}</span>`).join("")}</div></div>
+      <div class="bj-cards">${bjState.player.map((c) => `<span class="bj-card ${cardColorClass(c)}">${cardStr(c)}</span>`).join("")}</div></div>
     ${!bjState.done
       ? `<div class="casino-choice-row"><button class="btn btn-secondary" id="bj-hit">Karte</button><button class="btn btn-primary" id="bj-stand">Halten</button></div>`
       : `<button class="btn btn-secondary" id="bj-newround" style="width:100%">Neue Runde</button>`}`;
@@ -1582,7 +1652,8 @@ function renderBlackjack() {
   else $("bj-newround").onclick = () => { bjState = null; renderBlackjack(); };
 }
 
-// ---- Spielautomat (gewichtete Symbole, austariert auf ~14% Hausvorteil) ----
+// ---- Spielautomat (gewichtete Symbole, austariert auf ~14% Hausvorteil;
+// Walzen stoppen nacheinander fuer den klassischen "Klack-klack"-Effekt) ----
 const SLOT_SYMBOLS = [
   { s: "🍒", w: 30, pay3: 3, pay2: 1 },
   { s: "🍋", w: 25, pay3: 4.5, pay2: 1 },
@@ -1601,31 +1672,72 @@ function spinSlots() {
   const stake = checkCasinoStake("slots-stake");
   if (stake === null) return;
   $("slots-spin").disabled = true;
-  const reelEls = document.querySelectorAll("#slots-reels span");
+  const reelEls = document.querySelectorAll("#slots-reels .slot-reel");
+  const result = [spinSlotSymbol(), spinSlotSymbol(), spinSlotSymbol()];
+  const stopDelays = [900, 1450, 2100];
+  reelEls.forEach((el, i) => {
+    el.classList.remove("stopped", "win");
+    const iv = setInterval(() => { el.textContent = spinSlotSymbol().s; }, 70);
+    setTimeout(() => {
+      clearInterval(iv);
+      el.textContent = result[i].s;
+      el.classList.add("stopped");
+      SND.click();
+    }, stopDelays[i]);
+  });
+  setTimeout(() => {
+    let mult = 0, label = "Leider nichts...", winners = [];
+    if (result[0].s === result[1].s && result[1].s === result[2].s) { mult = result[0].pay3; label = "🎉 JACKPOT-KOMBO!"; winners = [0, 1, 2]; }
+    else if (result[0].s === result[1].s) { mult = result[0].pay2; label = "✨ Zwei Treffer!"; winners = [0, 1]; }
+    else if (result[1].s === result[2].s) { mult = result[1].pay2; label = "✨ Zwei Treffer!"; winners = [1, 2]; }
+    else if (result[0].s === result[2].s) { mult = result[0].pay2; label = "✨ Zwei Treffer!"; winners = [0, 2]; }
+    winners.forEach((i) => reelEls[i].classList.add("win"));
+    const net = resolveBet(stake, mult, $("slots-spin"));
+    const resEl = $("slots-result");
+    resEl.textContent = `${label} ${net >= 0 ? "+" : ""}${fmtMoney(net)}`;
+    resEl.className = "slots-result " + (net >= 0 ? "pos" : "neg");
+    $("slots-spin").disabled = false;
+  }, stopDelays[2] + 250);
+}
+
+// ---- Würfel (2 Würfel, Tief/Sieben/Hoch, angelehnt an Craps-Side-Bets) ----
+const DICE_FACES = ["⚀", "⚁", "⚂", "⚃", "⚄", "⚅"];
+function rollDice() {
+  const stake = checkCasinoStake("dice-stake");
+  if (stake === null) return;
+  const betType = $("dice-bet-value").querySelector(".casino-choice.active").dataset.val;
+  $("dice-roll").disabled = true;
+  const d1El = $("dice-die1"), d2El = $("dice-die2");
+  d1El.classList.add("rolling"); d2El.classList.add("rolling");
   let ticks = 0;
   const iv = setInterval(() => {
-    reelEls.forEach((el) => (el.textContent = spinSlotSymbol().s));
+    d1El.textContent = DICE_FACES[randInt(0, 5)];
+    d2El.textContent = DICE_FACES[randInt(0, 5)];
     ticks++;
-    if (ticks > 13) {
+    if (ticks > 12) {
       clearInterval(iv);
-      const result = [spinSlotSymbol(), spinSlotSymbol(), spinSlotSymbol()];
-      reelEls.forEach((el, i) => (el.textContent = result[i].s));
-      let mult = 0, label = "Leider nichts...";
-      if (result[0].s === result[1].s && result[1].s === result[2].s) { mult = result[0].pay3; label = "🎉 JACKPOT-KOMBO!"; }
-      else if (result[0].s === result[1].s || result[1].s === result[2].s || result[0].s === result[2].s) {
-        const m = result[0].s === result[1].s ? result[0] : result[1].s === result[2].s ? result[1] : result[0];
-        mult = m.pay2; label = "✨ Zwei Treffer!";
-      }
-      const net = resolveBet(stake, mult, $("slots-spin"));
-      const resEl = $("slots-result");
-      resEl.textContent = `${label} ${net >= 0 ? "+" : ""}${fmtMoney(net)}`;
+      d1El.classList.remove("rolling"); d2El.classList.remove("rolling");
+      const d1 = randInt(1, 6), d2 = randInt(1, 6);
+      d1El.textContent = DICE_FACES[d1 - 1];
+      d2El.textContent = DICE_FACES[d2 - 1];
+      const sum = d1 + d2;
+      let mult = 0, win = false;
+      if (betType === "low" && sum <= 6) { mult = 2.15; win = true; }
+      else if (betType === "high" && sum >= 8) { mult = 2.15; win = true; }
+      else if (betType === "seven" && sum === 7) { mult = 5; win = true; }
+      const net = resolveBet(stake, mult, $("dice-roll"));
+      const resEl = $("dice-result");
+      resEl.textContent = `Summe: ${sum} — ${net >= 0 ? "+" : ""}${fmtMoney(net)}`;
       resEl.className = "slots-result " + (net >= 0 ? "pos" : "neg");
-      $("slots-spin").disabled = false;
+      SND.click();
+      $("dice-roll").disabled = false;
     }
-  }, 90);
+  }, 80);
 }
 
 function initCasino() {
+  const wheelEl = $("roulette-wheel");
+  if (wheelEl) wheelEl.style.background = buildRouletteWheelGradient();
   $("roulette-bet-type").addEventListener("change", updateRouletteBetUI);
   updateRouletteBetUI();
   $("roulette-spin").addEventListener("click", spinRoulette);
@@ -1633,6 +1745,11 @@ function initCasino() {
   renderBlackjack();
   $("bj-deal").addEventListener("click", dealBlackjack);
   $("slots-spin").addEventListener("click", spinSlots);
+  $("dice-bet-value").querySelectorAll(".casino-choice").forEach((b) => (b.onclick = () => {
+    $("dice-bet-value").querySelectorAll(".casino-choice").forEach((x) => x.classList.remove("active"));
+    b.classList.add("active");
+  }));
+  $("dice-roll").addEventListener("click", rollDice);
 }
 
 // ============================================================

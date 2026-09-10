@@ -404,6 +404,21 @@ h3 { margin: 18px 0 8px; font-size: 1rem; color: var(--text); font-family: var(-
 .casino-choice.red.active { background: var(--red); border-color: var(--red); }
 .casino-choice.black.active { background: #22262f; border-color: #555; color: #fff; }
 
+.wheel-wrap { position: relative; width: 180px; height: 180px; margin: 4px auto 10px; }
+.wheel {
+  width: 100%; height: 100%; border-radius: 50%; border: 4px solid var(--border);
+  box-shadow: 0 0 0 3px var(--bg), inset 0 0 20px rgba(0,0,0,0.5);
+  transition: transform 3.1s cubic-bezier(0.12, 0.78, 0.18, 1);
+}
+.wheel-pointer {
+  position: absolute; top: -6px; left: 50%; transform: translateX(-50%);
+  font-size: 1.3rem; color: var(--gold); z-index: 2; filter: drop-shadow(0 2px 2px rgba(0,0,0,0.6));
+}
+.wheel-hub {
+  position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%);
+  width: 30px; height: 30px; border-radius: 50%; background: var(--card);
+  border: 3px solid var(--gold); box-shadow: 0 0 10px rgba(0,0,0,0.5);
+}
 .roulette-result {
   text-align: center; font-size: 2.2rem; font-weight: 700; font-family: var(--font-mono);
   padding: 18px; border-radius: 10px; background: var(--bg); border: 2px solid var(--border);
@@ -432,14 +447,43 @@ h3 { margin: 18px 0 8px; font-size: 1rem; color: var(--text); font-family: var(-
   box-shadow: 0 2px 4px rgba(0,0,0,0.35);
 }
 .bj-card.back { background: repeating-linear-gradient(45deg, var(--accent), var(--accent) 4px, var(--accent2) 4px, var(--accent2) 8px); color: transparent; }
+.bj-card-red { color: #c62828; }
+.bj-card-black { color: #1a1a1a; }
 
 .slots-reels {
   display: flex; justify-content: center; gap: 10px; font-size: 2.6rem;
   background: var(--bg); border: 2px solid var(--border); border-radius: 10px; padding: 18px;
 }
+.slot-reel { display: inline-block; transition: transform 0.15s; }
+.slot-reel.stopped { animation: reel-bounce 0.28s ease; }
+.slot-reel.win { animation: reel-win-pulse 0.5s ease infinite alternate; text-shadow: 0 0 16px var(--gold); }
+@keyframes reel-bounce { 0% { transform: scale(1.25); } 100% { transform: scale(1); } }
+@keyframes reel-win-pulse { from { text-shadow: 0 0 8px var(--gold); } to { text-shadow: 0 0 22px var(--gold); } }
 .slots-result { text-align: center; font-size: 0.85rem; font-weight: 700; margin-top: 8px; min-height: 1.2em; font-family: var(--font-mono); }
 .slots-result.pos { color: var(--green); }
 .slots-result.neg { color: var(--red); }
+
+.dice-display {
+  display: flex; justify-content: center; gap: 16px; font-size: 3.4rem; line-height: 1;
+  background: var(--bg); border: 2px solid var(--border); border-radius: 10px; padding: 20px;
+}
+.die { transition: transform 0.15s; }
+.die.rolling { animation: die-spin 0.15s linear infinite; }
+@keyframes die-spin { from { transform: rotate(0deg); } to { transform: rotate(25deg); } }
+
+/* ============ Bestenliste ============ */
+.leaderboard-box { background: var(--card); border: 1px solid var(--border); border-radius: var(--radius); padding: 14px; margin-top: 14px; }
+.leaderboard-list { display: flex; flex-direction: column; gap: 4px; max-height: 420px; overflow-y: auto; }
+.lb-row {
+  display: grid; grid-template-columns: 34px 1fr auto; gap: 10px; align-items: center;
+  padding: 8px 10px; border-radius: 8px; background: var(--bg); font-size: 0.82rem;
+}
+.lb-row.me { border: 1px solid var(--accent); background: var(--card-hover); }
+.lb-rank { font-weight: 800; color: var(--gold); font-family: var(--font-mono); text-align: center; }
+.lb-name-wrap { min-width: 0; }
+.lb-name { font-family: var(--font-mono); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; display: block; }
+.lb-title { color: var(--text-dim); font-size: 0.68rem; }
+.lb-worth { font-family: var(--font-mono); font-variant-numeric: tabular-nums; font-weight: 700; color: var(--green); white-space: nowrap; }
 .strategy-cards { display: grid; grid-template-columns: repeat(auto-fill, minmax(180px,1fr)); gap: 10px; }
 .card-item { background: linear-gradient(160deg, var(--card), var(--bg)); border: 1px solid var(--accent); border-radius: 10px; padding: 10px; text-align: center; }
 .card-item.locked { opacity: 0.4; border-color: var(--border); }
