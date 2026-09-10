@@ -1,0 +1,315 @@
+<!DOCTYPE html>
+<html lang="de">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>BörsenTycoon</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Sora:wght@600;700;800&family=IBM+Plex+Mono:wght@500;600;700&display=swap">
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+
+<!-- ===== Eilmeldungen (Push-Notifications) ===== -->
+<div id="push-stack" class="push-stack"></div>
+
+<!-- ===== Floating Zahlen Layer ===== -->
+<div id="float-layer" class="float-layer"></div>
+
+<!-- ===== Konfetti Layer ===== -->
+<canvas id="confetti-canvas"></canvas>
+
+<div id="app" class="app">
+
+  <!-- ===== Header: Breaking News Marquee + Stats ===== -->
+  <header class="topbar">
+    <div class="brand">
+      <span class="brand-icon">📈</span>
+      <span class="brand-name">Börsen<span class="accent">Tycoon</span></span>
+    </div>
+    <div class="ticker-wrap">
+      <span class="ticker-label">BREAKING</span>
+      <div class="ticker-track" id="news-ticker">
+        <div class="ticker-content" id="news-ticker-content"></div>
+        <div class="ticker-content" aria-hidden="true" id="news-ticker-content-dup"></div>
+      </div>
+    </div>
+    <div class="hud">
+      <div class="hud-item">
+        <span class="hud-label">Kasse</span>
+        <span class="hud-value" id="hud-cash">0 €</span>
+      </div>
+      <div class="hud-item">
+        <span class="hud-label">Vermögen</span>
+        <span class="hud-value" id="hud-networth">0 €</span>
+      </div>
+      <div class="hud-item">
+        <span class="hud-label">Follower</span>
+        <span class="hud-value" id="hud-followers">0</span>
+      </div>
+      <div class="hud-item">
+        <span class="hud-label">Rang</span>
+        <span class="hud-value" id="hud-rank">Groschen-Trader</span>
+      </div>
+      <button id="btn-overclock" class="btn-overclock" title="10 Sekunden 3x Tempo">⚡ Overclock</button>
+      <button id="btn-account" class="btn-account" title="Anmelden, um Fortschritt geräteübergreifend zu speichern">👤 Anmelden</button>
+    </div>
+  </header>
+
+  <!-- ===== SEC Thermometer ===== -->
+  <div class="sec-bar-wrap" id="sec-bar-wrap" title="Aufmerksamkeits-Level der Finanzaufsicht">
+    <span class="sec-label">🕵️ SEC/BaFin</span>
+    <div class="sec-bar"><div class="sec-fill" id="sec-fill"></div></div>
+    <span class="sec-pct" id="sec-pct">0%</span>
+    <span class="sec-stage" id="sec-stage">Sicher</span>
+  </div>
+
+  <!-- ===== Tabs ===== -->
+  <nav class="tabs" id="tabs">
+    <button class="tab-btn active" data-tab="boerse">📈 Börse</button>
+    <button class="tab-btn" data-tab="social">💬 Social</button>
+    <button class="tab-btn" data-tab="mining">⛏️ Mining</button>
+    <button class="tab-btn" data-tab="upgrades">🛒 Upgrades</button>
+    <button class="tab-btn" data-tab="immobilien">🏠 Immobilien</button>
+    <button class="tab-btn" data-tab="postfach">📥 Postfach <span class="badge" id="inbox-badge" hidden>0</span></button>
+    <button class="tab-btn" data-tab="ipo">🏛️ IPO</button>
+    <button class="tab-btn" data-tab="minigames">🎮 Mini-Games</button>
+    <button class="tab-btn" data-tab="stats">📊 Statistik</button>
+    <button class="tab-btn" data-tab="settings">⚙️ Optionen</button>
+  </nav>
+
+  <main class="tab-panels">
+
+    <!-- ================= BÖRSE ================= -->
+    <section class="panel active" id="panel-boerse">
+      <div class="panel-toolbar">
+        <button id="btn-analyse" class="btn btn-secondary">🔎 Markt-Analyse <span class="cd" id="analyse-cd"></span></button>
+        <div class="autopilot-toggle">
+          <label><input type="checkbox" id="chk-autopilot"> 🤖 Full-Auto-Pilot</label>
+          <div class="automation-bar-wrap">
+            <div class="automation-bar"><div class="automation-fill" id="automation-fill"></div></div>
+            <span id="automation-pct">0%</span>
+          </div>
+        </div>
+      </div>
+      <div class="stock-grid" id="stock-grid"></div>
+      <div class="portfolio-box">
+        <h3>📁 Portfolio</h3>
+        <div id="portfolio-list" class="portfolio-list"></div>
+      </div>
+    </section>
+
+    <!-- ================= SOCIAL ================= -->
+    <section class="panel" id="panel-social">
+      <div class="social-grid">
+        <div class="profile-card">
+          <div class="avatar">🧑‍💻</div>
+          <div class="profile-name">Du <span id="verified-badge" class="verified" hidden>✔️</span></div>
+          <div class="profile-followers"><span id="social-followers">0</span> Follower</div>
+          <div class="profile-trust">Trust-Score: <span id="social-trust">50</span></div>
+          <div class="profile-sponsor" id="sponsor-status"></div>
+        </div>
+        <div class="post-composer">
+          <h3>✍️ Neuer Post</h3>
+          <textarea id="post-text" maxlength="140" placeholder="Was pushst du heute? z.B. 'CryptoMoon geht zum Mond! 🚀'"></textarea>
+          <div class="post-controls">
+            <select id="post-stock"></select>
+            <select id="post-direction">
+              <option value="up">📈 Kurs steigt</option>
+              <option value="down">📉 Kurs fällt</option>
+            </select>
+            <button id="btn-post" class="btn btn-primary">Posten</button>
+          </div>
+          <div class="post-actions-row">
+            <button id="btn-fakenews" class="btn btn-danger">🕶️ Fake-News-Kampagne</button>
+            <button id="btn-meme" class="btn btn-secondary">🖼️ Meme erstellen</button>
+          </div>
+          <div class="trending" id="trending-topics"></div>
+        </div>
+      </div>
+      <div class="feed-box">
+        <h3>📰 Live-Feed</h3>
+        <div id="social-feed" class="social-feed"></div>
+      </div>
+    </section>
+
+    <!-- ================= MINING ================= -->
+    <section class="panel" id="panel-mining">
+      <div class="mining-top">
+        <div class="power-meter-box">
+          <h3>⚡ Stromnetz</h3>
+          <div class="power-bar"><div class="power-fill" id="power-fill"></div></div>
+          <div id="power-text">0 / 0 kW</div>
+          <div id="fusebox" class="fusebox" hidden>
+            <p>🔌 SICHERUNG RAUS!</p>
+            <button id="btn-fuse" class="btn btn-danger">Sicherung wieder einschalten</button>
+          </div>
+        </div>
+        <div class="coin-box">
+          <h3>🪙 Krypto-Coins</h3>
+          <div id="coin-balance">0.000</div>
+          <button id="btn-sell-coins" class="btn btn-primary">Verkaufen</button>
+        </div>
+      </div>
+      <div class="rig-shop" id="rig-shop"></div>
+      <div class="rig-grid" id="rig-grid"></div>
+    </section>
+
+    <!-- ================= UPGRADES ================= -->
+    <section class="panel" id="panel-upgrades">
+      <div class="upgrade-tabs">
+        <button class="uptab-btn active" data-uptab="trading">💹 Trading</button>
+        <button class="uptab-btn" data-uptab="mining">⛏️ Mining</button>
+        <button class="uptab-btn" data-uptab="social">📣 Social/PR</button>
+        <button class="uptab-btn" data-uptab="legal">⚖️ Recht</button>
+        <button class="uptab-btn" data-uptab="skills">🌳 Talente</button>
+        <button class="uptab-btn" data-uptab="automation">🤖 Automatisierung</button>
+      </div>
+      <div class="upgrade-list" id="upgrade-list"></div>
+    </section>
+
+    <!-- ================= IMMOBILIEN ================= -->
+    <section class="panel" id="panel-immobilien">
+      <h3>🏠 Immobilien</h3>
+      <div class="estate-grid" id="estate-grid"></div>
+      <h3>💎 Luxusgüter</h3>
+      <div class="luxury-grid" id="luxury-grid"></div>
+      <h3>👥 Mitarbeiter</h3>
+      <div class="employee-grid" id="employee-grid"></div>
+      <div class="costs-box">
+        <h3>🧾 Laufende Kosten / Tick</h3>
+        <div id="running-costs"></div>
+      </div>
+    </section>
+
+    <!-- ================= POSTFACH ================= -->
+    <section class="panel" id="panel-postfach">
+      <div class="inbox-subtabs">
+        <button class="inboxtab-btn active" data-inboxtab="chats">💬 Chats</button>
+        <button class="inboxtab-btn" data-inboxtab="informanten">🕵️ Informanten</button>
+      </div>
+      <div class="inbox-wrap" id="inbox-chats">
+        <div class="inbox-list" id="inbox-list"></div>
+        <div class="inbox-detail" id="inbox-detail">
+          <p class="hint">Wähle eine Nachricht aus.</p>
+        </div>
+      </div>
+      <div class="inbox-wrap" id="inbox-informanten" hidden>
+        <div class="informant-list" id="informant-list"></div>
+      </div>
+    </section>
+
+    <!-- ================= IPO ================= -->
+    <section class="panel" id="panel-ipo">
+      <div id="ipo-locked" class="ipo-locked">
+        <h2>🏛️ Börsengang (IPO)</h2>
+        <p>Erreiche <strong>10.000.000 €</strong> Vermögen, um deine eigene Firma an die Börse zu bringen.</p>
+        <div class="progress-wrap"><div class="progress-fill" id="ipo-progress"></div></div>
+      </div>
+      <div id="ipo-setup" class="ipo-setup" hidden>
+        <h2>🏛️ Firmengründung</h2>
+        <label>Firmenname<input type="text" id="ipo-name" maxlength="24" placeholder="z.B. Tycoon Holding AG"></label>
+        <label>Logo
+          <div class="logo-picker" id="logo-picker"></div>
+        </label>
+        <label>Emissionspreis (€)<input type="number" id="ipo-price" value="50" min="1" max="500"></label>
+        <button id="btn-start-roadshow" class="btn btn-primary">🎤 Roadshow starten</button>
+      </div>
+      <div id="ipo-dashboard" class="ipo-dashboard" hidden>
+        <div class="ipo-header">
+          <span id="ipo-logo" class="ipo-logo"></span>
+          <span id="ipo-companyname" class="ipo-companyname"></span>
+          <span id="ipo-ticker" class="ipo-ticker"></span>
+        </div>
+        <div class="ipo-stats">
+          <div>Kurs: <span id="ipo-share-price"></span></div>
+          <div>Marktkapitalisierung: <span id="ipo-marketcap"></span></div>
+          <div>Dein Anteil: <span id="ipo-ownership"></span>%</div>
+        </div>
+        <div class="ownership-bar"><div class="ownership-fill" id="ownership-fill"></div></div>
+        <div class="ipo-controls">
+          <label>Dividende: <input type="range" id="ipo-dividend-slider" min="0" max="10" value="2" step="0.5"> <span id="ipo-dividend-value">2%</span></label>
+          <button id="btn-buyback" class="btn btn-primary">💰 Aktien zurückkaufen (Buyback)</button>
+        </div>
+        <div id="hq-box" class="hq-box"></div>
+      </div>
+    </section>
+
+    <!-- ================= MINI-GAMES ================= -->
+    <section class="panel" id="panel-minigames">
+      <div class="minigame-hub" id="minigame-hub">
+        <div class="mg-card">
+          <h3>📉 Chart-Crash</h3>
+          <p>Klicke SELL bevor der Chart abstürzt!</p>
+          <button class="btn btn-primary" data-mg="chartcrash">Starten</button>
+        </div>
+        <div class="mg-card">
+          <h3>🛡️ Hacker-Abwehr</h3>
+          <p>Gib den Code rechtzeitig ein.</p>
+          <button class="btn btn-primary" data-mg="hacker">Starten</button>
+        </div>
+        <div class="mg-card">
+          <h3>🎤 PR-Interview</h3>
+          <p>3 Runden für maximalen Hype.</p>
+          <button class="btn btn-primary" data-mg="interview">Starten</button>
+        </div>
+        <div class="mg-card">
+          <h3>⚔️ Influencer-Battle</h3>
+          <p>Timing-Wortgefecht gegen Rivalen.</p>
+          <button class="btn btn-primary" data-mg="battle">Starten</button>
+        </div>
+      </div>
+      <div class="strategy-cards-box">
+        <h3>🃏 Strategie-Karten</h3>
+        <div id="strategy-cards" class="strategy-cards"></div>
+      </div>
+    </section>
+
+    <!-- ================= STATISTIK ================= -->
+    <section class="panel" id="panel-stats">
+      <div class="stats-grid" id="stats-grid"></div>
+      <div class="prestige-box">
+        <h3>♻️ Prestige / Ruhestand</h3>
+        <p id="prestige-desc"></p>
+        <button id="btn-prestige" class="btn btn-danger">In den Ruhestand gehen</button>
+      </div>
+    </section>
+
+    <!-- ================= EINSTELLUNGEN ================= -->
+    <section class="panel" id="panel-settings">
+      <h3>☁️ Account & Cloud-Speicher</h3>
+      <div class="account-box" id="account-box"></div>
+      <h3>🎨 Theme</h3>
+      <div class="theme-grid" id="theme-grid"></div>
+      <h3>🔊 Sound</h3>
+      <label><input type="checkbox" id="chk-sound" checked> Soundeffekte aktiviert</label>
+      <h3>💾 Speicherstand</h3>
+      <button id="btn-reset" class="btn btn-danger">Spielstand zurücksetzen (nur lokal)</button>
+    </section>
+
+  </main>
+</div>
+
+<!-- ===== Modal Layer ===== -->
+<div id="modal-overlay" class="modal-overlay" hidden>
+  <div id="modal-box" class="modal-box"></div>
+</div>
+
+<!-- ===== Tutorial Overlay ===== -->
+<div id="tutorial-overlay" class="tutorial-overlay" hidden>
+  <div class="tutorial-box" id="tutorial-box"></div>
+</div>
+
+<!-- Firebase (Auth + Firestore) fuer den optionalen Cloud-Speicherstand.
+     Laedt nur die Compat-SDKs, kein Build-Schritt noetig. Solange
+     firebase-config.js noch Platzhalter enthaelt, bleibt das Spiel im
+     reinen Lokal-Modus (siehe FIREBASE_CONFIGURED in app.js). -->
+<script src="https://www.gstatic.com/firebasejs/10.13.0/firebase-app-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/10.13.0/firebase-auth-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/10.13.0/firebase-firestore-compat.js"></script>
+<script src="firebase-config.js"></script>
+<script src="data.js"></script>
+<script src="app.js"></script>
+</body>
+</html>
