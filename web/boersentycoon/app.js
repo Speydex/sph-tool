@@ -30,6 +30,158 @@ function fmtNum(n) {
 function pct(n) { return (n >= 0 ? "+" : "") + (n * 100).toFixed(2) + "%"; }
 
 // ============================================================
+// GEMEINSAMER MARKT — deterministisch aus der Wanduhrzeit berechnet
+// ============================================================
+// Kursverlauf, Flash-Crashes, Welt-Krisen, automatische News und KI-
+// Rivalen-Posts hängen NUR von der aktuellen Zeit ab (kein Math.random())
+// — dadurch berechnet jedes Gerät exakt dieselben Werte, ganz ohne
+// Server/Cloud-Synchronisierung. Persönliche Aktionen (Social-Posts,
+// Insider-Infos, Overclock, ...) wirken zusätzlich nur lokal über
+// st.localMult, damit sie den geteilten Kurs nicht für alle verfälschen.
+const MARKET_TICK_MS = 1500;
+const MARKET_EPOCH = 1893456000000; // fester Referenzpunkt, für alle Geräte identisch
+
+function marketTickIndex(t) { return Math.floor((t - MARKET_EPOCH) / MARKET_TICK_MS); }
+
+function hash32(str) {
+  let h = 2166136261;
+  for (let i = 0; i < str.length; i++) { h ^= str.charCodeAt(i); h = Math.imul(h, 16777619); }
+  return h >>> 0;
+}
+// Deterministischer Pseudo-Zufallswert in [0,1) für (seed, index) — dieselbe
+// Kombination liefert auf jedem Gerät exakt denselben Wert, ohne dass
+// irgendetwas seit Spielbeginn nachgerechnet werden muss.
+function detRand(seed, index) {
+  let a = (hash32(seed) ^ Math.imul(index | 0, 0x9e3779b1)) >>> 0;
+  a |= 0; a = (a + 0x6d2b79f5) | 0;
+  let t = Math.imul(a ^ (a >>> 15), 1 | a);
+  t = (t + Math.imul(t ^ (t >>> 7), 61 | t)) ^ t;
+  return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
+}
+function detRange(seed, index, a, b) { return a + detRand(seed, index) * (b - a); }
+function smoothNoise1D(seed, x) {
+  const i = Math.floor(x), f = x - i;
+  const a = detRand(seed, i) * 2 - 1;
+  const b = detRand(seed, i + 1) * 2 - 1;
+  const u = f * f * (3 - 2 * f);
+  return a + u * (b - a);
+}
+function fbmNoise(seed, x, octaves) {
+  let total = 0, amp = 0.5, freq = 1, norm = 0;
+  for (let o = 0; o < octaves; o++) {
+    total += smoothNoise1D(seed + ":o" + o, x * freq) * amp;
+    norm += amp;
+    amp *= 0.55; freq *= 2.17;
+  }
+  return total / norm;
+}
+
+function sharedStockLogReturn(cfg, tickIndex) {
+  const regime = fbmNoise(cfg.id + ":regime", tickIndex / 4200, 3) + cfg.drift * 380;
+  const macro = fbmNoise(cfg.id + ":macro", tickIndex / 260, 3);
+  const micro = fbmNoise(cfg.id + ":micro", tickIndex / 11, 2);
+  return cfg.vol * (regime * 8.5 + macro * 4.5 + micro * 1.6);
+}
+
+// Deterministischer Flash-Crash: ca. alle 15-20 Minuten für 20-30s, betrifft alle Aktien.
+const FLASHCRASH_WINDOW_TICKS = Math.round((8 * 60000) / MARKET_TICK_MS);
+function sharedFlashCrash(tickIndex) {
+  const windowIdx = Math.floor(tickIndex / FLASHCRASH_WINDOW_TICKS);
+  if (detRand("flashcrash:fire", windowIdx) > 0.4) return null;
+  const windowStart = windowIdx * FLASHCRASH_WINDOW_TICKS;
+  const startTick = windowStart + Math.floor(detRand("flashcrash:offset", windowIdx) * FLASHCRASH_WINDOW_TICKS * 0.7);
+  const durTicks = Math.round(detRange("flashcrash:dur", windowIdx, 20000, 30000) / MARKET_TICK_MS);
+  const endTick = startTick + durTicks;
+  const active = tickIndex >= startTick && tickIndex <= endTick;
+  const depth = detRange("flashcrash:depth", windowIdx, 0.28, 0.5);
+  return { windowIdx, startTick, endTick, active, depth };
+}
+
+// Deterministische Welt-Krisen: ca. alle 30 Minuten, sektorweiter Boom/Crash.
+const CRISIS_WINDOW_TICKS = Math.round((15 * 60000) / MARKET_TICK_MS);
+function sharedCrisis(tickIndex) {
+  const windowIdx = Math.floor(tickIndex / CRISIS_WINDOW_TICKS);
+  if (detRand("crisis:fire", windowIdx) > 0.5) return null;
+  const windowStart = windowIdx * CRISIS_WINDOW_TICKS;
+  const event = CRISIS_EVENTS[Math.floor(detRand("crisis:pick", windowIdx) * CRISIS_EVENTS.length)];
+  const startTick = windowStart + Math.floor(detRand("crisis:offset", windowIdx) * CRISIS_WINDOW_TICKS * 0.5);
+  const durTicks = Math.round((event.name === "KI-Durchbruch" ? 120000 : 90000) / MARKET_TICK_MS);
+  const active = tickIndex >= startTick && tickIndex <= startTick + durTicks;
+  return { windowIdx, startTick, active, event };
+}
+
+// Deterministische Breaking-News: ca. alle 15-25s wirkt ein Titel (für alle
+// Geräte identisch ausgewählt) kurzzeitig auf eine Aktie.
+const NEWS_WINDOW_TICKS = Math.round(17000 / MARKET_TICK_MS);
+function sharedNews(tickIndex) {
+  const windowIdx = Math.floor(tickIndex / NEWS_WINDOW_TICKS);
+  if (detRand("news:fire", windowIdx) > 0.6) return null;
+  const windowStart = windowIdx * NEWS_WINDOW_TICKS;
+  const item = NEWS_TEMPLATES[Math.floor(detRand("news:item", windowIdx) * NEWS_TEMPLATES.length)];
+  const candidates = item.companies || STOCKS.filter((s) => !item.cat || s.cat === item.cat).map((s) => s.id);
+  const pool = candidates.length ? candidates : STOCKS.map((s) => s.id);
+  const targetId = pool[Math.floor(detRand("news:target", windowIdx) * pool.length)];
+  const effect = detRange("news:effect", windowIdx, item.pct[0], item.pct[1]);
+  const durTicks = Math.round(35000 / MARKET_TICK_MS);
+  const active = tickIndex >= windowStart && tickIndex <= windowStart + durTicks;
+  return { windowIdx, windowStart, active, item, targetId, effect };
+}
+
+// Deterministische Rivalen-Posts: ca. alle 40s pusht ein KI-Rivale eine
+// Aktie aus seinem Fokus-Sektor.
+const RIVALPOST_WINDOW_TICKS = Math.round(42000 / MARKET_TICK_MS);
+function sharedRivalPost(tickIndex) {
+  const windowIdx = Math.floor(tickIndex / RIVALPOST_WINDOW_TICKS);
+  const rival = RIVALS[Math.floor(detRand("rival:pick", windowIdx) * RIVALS.length)];
+  const pool = STOCKS.filter((s) => s.cat === rival.focus);
+  if (!pool.length) return null;
+  const target = pool[Math.floor(detRand("rival:stock", windowIdx) * pool.length)];
+  const dir = detRand("rival:dir", windowIdx) < 0.5 ? 1 : -1;
+  const effect = dir * detRange("rival:mag", windowIdx, 0.02, 0.06);
+  const windowStart = windowIdx * RIVALPOST_WINDOW_TICKS;
+  const durTicks = Math.round(30000 / MARKET_TICK_MS);
+  const active = tickIndex >= windowStart && tickIndex <= windowStart + durTicks;
+  return { windowIdx, windowStart, active, rival, stockId: target.id, effect };
+}
+
+// Voller geteilter Kurs (ohne persönlichen Multiplikator) für eine Aktie zu einem Tick-Index.
+function sharedStockPrice(cfg, tickIndex) {
+  let logDelta = sharedStockLogReturn(cfg, tickIndex);
+  const crash = sharedFlashCrash(tickIndex);
+  if (crash && crash.active) logDelta += Math.log(1 - crash.depth);
+  const crisis = sharedCrisis(tickIndex);
+  if (crisis && crisis.active) {
+    if (crisis.event.boomCat === cfg.cat) logDelta += Math.log(1 + (crisis.event.boomPct || 0) * 0.4);
+    if (crisis.event.crashCat === cfg.cat) logDelta += Math.log(1 + (crisis.event.crashPct || 0) * 0.7);
+  }
+  const news = sharedNews(tickIndex);
+  if (news && news.active && news.targetId === cfg.id) logDelta += Math.log(1 + news.effect);
+  const rivalPost = sharedRivalPost(tickIndex);
+  if (rivalPost && rivalPost.active && rivalPost.stockId === cfg.id) logDelta += Math.log(1 + rivalPost.effect);
+  const price = cfg.base * Math.exp(logDelta);
+  return clamp(price, cfg.base * 0.03, cfg.base * 60);
+}
+
+// Gemeinsamer Krypto-Coin-Kurs, gleiches Prinzip wie oben.
+function sharedCoinPrice(tickIndex) {
+  const macro = fbmNoise("coin:macro", tickIndex / 200, 3);
+  const micro = fbmNoise("coin:micro", tickIndex / 9, 2);
+  const logDelta = macro * 0.5 + micro * 0.22;
+  return clamp(COIN_PRICE_BASE * Math.exp(logDelta), COIN_PRICE_BASE * 0.3, COIN_PRICE_BASE * 8);
+}
+
+// Wendet einen rein persönlichen Kurs-Effekt an (Social-Post, Insider-Tipp,
+// Meme, ...) — verändert nie den geteilten Kurs selbst, nur den lokalen
+// Multiplikator dieses Spielers, und aktualisiert st.price sofort für
+// direktes visuelles Feedback statt erst beim nächsten Tick.
+function applyLocalPriceEffect(cfg, effect) {
+  const st = S.stocks[cfg.id];
+  st.localMult = clamp((st.localMult || 1) * (1 + effect), 0.15, 6);
+  st.price = clamp(sharedStockPrice(cfg, marketTickIndex(now())) * st.localMult, cfg.base * 0.03, cfg.base * 60);
+  return st.price;
+}
+
+// ============================================================
 // STATE
 // ============================================================
 const SAVE_KEY = "boersentycoon_save_v1";
@@ -37,14 +189,23 @@ const PRESTIGE_KEY = "boersentycoon_prestige_v1";
 
 function freshState() {
   const stocks = {};
+  // Startkurse/-verlauf werden aus der geteilten Marktformel entnommen (statt
+  // flach bei base zu beginnen), damit ein neuer Spieler sofort denselben
+  // Kurs und Chart-Verlauf sieht wie alle anderen bereits aktiven Spieler.
+  const seedTick = marketTickIndex(now());
   STOCKS.forEach((s) => {
+    const history = [];
+    for (let i = 29; i >= 0; i--) history.push(sharedStockPrice(s, seedTick - i));
+    let ath = s.base;
+    for (let i = 0; i < 2000; i += 8) { const p = sharedStockPrice(s, seedTick - i); if (p > ath) ath = p; }
     stocks[s.id] = {
-      price: s.base, history: Array(30).fill(s.base),
-      ath: s.base, boostUntil: 0, crashUntil: 0, markerUntil: 0, markerType: "",
-      lastPostTick: 0, manipCount: 0, manipWindowStart: 0,
+      price: history[history.length - 1], history,
+      ath, boostUntil: 0, crashUntil: 0, markerUntil: 0, markerType: "",
+      lastPostTick: 0, manipCount: 0, manipWindowStart: 0, localMult: 1,
     };
   });
   const upgrades = {}, employees = {}, luxury = {}, skills = {};
+  const coinPrice = sharedCoinPrice(seedTick);
   return {
     cash: STARTING_CASH,
     stocks,
@@ -58,7 +219,7 @@ function freshState() {
     secHeat: 0,
     frozenUntil: 0,
     raidActive: false,
-    coins: 0, coinPrice: COIN_PRICE_BASE, coinHistory: [COIN_PRICE_BASE],
+    coins: 0, coinPrice, coinHistory: [coinPrice],
     rigs: [], fuseTripped: false, powerCap: 4,
     upgrades, employees, luxury, skills, skillPoints: 0,
     estateIndex: 0,
@@ -90,6 +251,16 @@ function savePrestige() {
   try { localStorage.setItem(PRESTIGE_KEY, JSON.stringify(PRESTIGE)); } catch (e) {}
 }
 
+// Ergänzt fehlende/neue Aktien-Felder in einem geladenen Spielstand (neue
+// Aktien seit dem letzten Speichern, oder — wie localMult — Felder, die es
+// beim Speichern noch gar nicht gab).
+function ensureStockFields() {
+  STOCKS.forEach((s) => {
+    if (!S.stocks[s.id]) S.stocks[s.id] = freshState().stocks[s.id];
+    if (typeof S.stocks[s.id].localMult !== "number") S.stocks[s.id].localMult = 1;
+  });
+}
+
 function loadGame() {
   loadPrestige();
   try {
@@ -97,8 +268,7 @@ function loadGame() {
     if (raw) {
       const loaded = JSON.parse(raw);
       S = Object.assign(freshState(), loaded);
-      // merge nested defaults for stocks that might be new
-      STOCKS.forEach((s) => { if (!S.stocks[s.id]) S.stocks[s.id] = freshState().stocks[s.id]; });
+      ensureStockFields();
       return true;
     }
   } catch (e) { console.warn("Save korrupt, neu gestartet.", e); }
@@ -214,7 +384,7 @@ async function resolveCloudOnLogin() {
 
 function applyCloudState(cloudState) {
   S = Object.assign(freshState(), cloudState);
-  STOCKS.forEach((s) => { if (!S.stocks[s.id]) S.stocks[s.id] = freshState().stocks[s.id]; });
+  ensureStockFields();
   saveGame();
   renderAll();
   applyTheme();
@@ -495,22 +665,21 @@ function stockPrice(id) { return S.stocks[id].price; }
 
 function priceTick() {
   const t = now();
-  const speed = t < S.overclockUntil ? 3 : 1;
+  const tickIndex = marketTickIndex(t);
+  // Overclock bleibt ein rein persönlicher Effekt (zusätzliches lokales
+  // Zittern über localMult), damit er den für alle geteilten Kurs nicht
+  // nur für diesen Spieler verändert.
+  const overclocking = t < S.overclockUntil;
+  const crash = sharedFlashCrash(tickIndex);
+  const crashActiveNow = !!(crash && crash.active);
+  const crashUntilTs = crashActiveNow ? MARKET_EPOCH + crash.endTick * MARKET_TICK_MS : 0;
+
   STOCKS.forEach((cfg) => {
     const st = S.stocks[cfg.id];
-    const crashed = t < st.crashUntil;
-    let vol = cfg.vol * speed;
-    let drift = cfg.drift * speed;
-    // Krisen-Events
-    if (activeCrisis && t < activeCrisis.until) {
-      if (activeCrisis.event.boomCat === cfg.cat) drift += (activeCrisis.event.boomPct || 0) / 40;
-      if (activeCrisis.event.crashCat === cfg.cat) drift += (activeCrisis.event.crashPct || 0) / 40;
-    }
-    if (crashed) { drift -= 0.02; vol *= 1.8; }
-    const change = drift + (Math.random() * 2 - 1) * vol;
-    let np = st.price * (1 + change);
-    np = clamp(np, cfg.base * 0.03, cfg.base * 60);
+    if (overclocking) st.localMult = clamp(st.localMult * (1 + (Math.random() * 2 - 1) * cfg.vol * 0.8), 0.15, 6);
+    const np = clamp(sharedStockPrice(cfg, tickIndex) * (st.localMult || 1), cfg.base * 0.03, cfg.base * 60);
     st.price = np;
+    st.crashUntil = crashUntilTs;
     st.history.push(np);
     if (st.history.length > 40) st.history.shift();
     if (np > st.ath) {
@@ -526,11 +695,12 @@ function priceTick() {
       }
     }
   });
-  // Coin-Preis eigener kleiner Random-Walk
-  S.coinPrice = clamp(S.coinPrice * (1 + rand(-0.02, 0.022)), COIN_PRICE_BASE * 0.3, COIN_PRICE_BASE * 8);
+
+  S.coinPrice = sharedCoinPrice(tickIndex);
   S.coinHistory.push(S.coinPrice);
   if (S.coinHistory.length > 40) S.coinHistory.shift();
 
+  detectMarketEvents(tickIndex, crash, crashActiveNow);
   checkPredictions();
   renderStockGrid();
   renderPortfolio();
@@ -541,29 +711,48 @@ function onAllTimeHigh(cfg) {
   pushNotify("🏆 ALL-TIME-HIGH", `${cfg.name} erreicht ein neues Rekordhoch!`, "ath");
 }
 
-let activeCrisis = null;
+// Merkt sich, welches Zeitfenster jedes ambiente Markt-Ereignis zuletzt
+// gemeldet hat, damit Eilmeldung/Ticker/Screenshake pro Ereignis nur einmal
+// (beim Start) statt bei jedem Tick erneut feuern. Rein lokale UI-
+// Bookkeeping — beeinflusst den geteilten Kurs selbst nicht.
+let marketEventEdge = { flashCrash: false, crisisWindow: -1, newsWindow: -1, rivalWindow: -1 };
 
-function applyNews(item, targetId) {
-  const cfg = STOCKS.find((s) => s.id === targetId);
-  const st = S.stocks[targetId];
-  const effect = rand(item.pct[0], item.pct[1]);
-  st.price = clamp(st.price * (1 + effect), cfg.base * 0.03, cfg.base * 60);
-  st.markerUntil = now() + 60000;
-  st.markerType = effect >= 0 ? "boost" : "crash";
-  const text = item.text.replace("{company}", cfg.name);
-  addNewsTicker(text, effect >= 0 ? "boost" : "crash");
-  if (Math.abs(effect) > 0.2) pushNotify("📰 EILMELDUNG", text);
-}
+function detectMarketEvents(tickIndex, crash, crashActiveNow) {
+  if (crashActiveNow && !marketEventEdge.flashCrash) {
+    addNewsTicker("📉 BÖRSENCRASH! Alle Kurse brechen ein — Kaufgelegenheit!", "crash");
+    pushNotify("💥 FLASH CRASH", "Der Markt stürzt ab! Perfekte Kaufgelegenheit für kurze Zeit.", "crash");
+    screenShake();
+  }
+  marketEventEdge.flashCrash = crashActiveNow;
 
-function newsLoop() {
-  const pool = NEWS_TEMPLATES;
-  const withCat = pool.filter((n) => !n.companies);
-  const item = choice(pool);
-  let target;
-  if (item.companies) target = choice(item.companies);
-  else target = choice(STOCKS.filter((s) => !item.cat || s.cat === item.cat).map((s) => s.id)) || choice(STOCKS).id;
-  applyNews(item, target);
-  setTimeout(newsLoop, rand(12000, 22000));
+  const crisis = sharedCrisis(tickIndex);
+  const crisisKey = crisis && crisis.active ? crisis.windowIdx : -1;
+  if (crisisKey !== -1 && crisisKey !== marketEventEdge.crisisWindow) {
+    addNewsTicker(crisis.event.text, crisis.event.boomPct ? "boost" : "crash");
+    pushNotify("🌍 WELT-EREIGNIS", crisis.event.text);
+    screenShake();
+  }
+  marketEventEdge.crisisWindow = crisisKey;
+
+  const news = sharedNews(tickIndex);
+  const newsKey = news && news.active ? news.windowIdx : -1;
+  if (newsKey !== -1 && newsKey !== marketEventEdge.newsWindow) {
+    const cfg = STOCKS.find((s) => s.id === news.targetId);
+    const text = news.item.text.replace("{company}", cfg.name);
+    addNewsTicker(text, news.effect >= 0 ? "boost" : "crash");
+    if (Math.abs(news.effect) > 0.2) pushNotify("📰 EILMELDUNG", text);
+    S.stocks[news.targetId].markerUntil = now() + 35000;
+    S.stocks[news.targetId].markerType = news.effect >= 0 ? "boost" : "crash";
+  }
+  marketEventEdge.newsWindow = newsKey;
+
+  const rivalPost = sharedRivalPost(tickIndex);
+  const rivalKey = rivalPost && rivalPost.active ? rivalPost.windowIdx : -1;
+  if (rivalKey !== -1 && rivalKey !== marketEventEdge.rivalWindow) {
+    const cfg = STOCKS.find((s) => s.id === rivalPost.stockId);
+    addFeedItem(`${rivalPost.rival.emoji} ${rivalPost.rival.name}`, `${choice(RIVAL_COMMENTS_POOL)} (pusht ${cfg.name} ${pct(rivalPost.effect)})`, "rival");
+  }
+  marketEventEdge.rivalWindow = rivalKey;
 }
 
 // Einzige Quelle der Wahrheit für den Ticker-Inhalt. Beide Kopien (Original +
@@ -591,40 +780,6 @@ function renderNewsTicker() {
     void el.offsetWidth;
     el.style.animation = "";
   });
-}
-
-function flashCrashLoop() {
-  const delay = rand(5 * 60000, 10 * 60000);
-  setTimeout(() => {
-    triggerFlashCrash();
-    flashCrashLoop();
-  }, delay);
-}
-function triggerFlashCrash() {
-  const dur = rand(20000, 30000);
-  const until = now() + dur;
-  STOCKS.forEach((cfg) => {
-    const st = S.stocks[cfg.id];
-    st.price = Math.max(cfg.base * 0.05, st.price * rand(0.5, 0.72));
-    st.crashUntil = until;
-  });
-  addNewsTicker("📉 BÖRSENCRASH! Alle Kurse brechen ein — Kaufgelegenheit!", "crash");
-  pushNotify("💥 FLASH CRASH", "Der Markt stürzt ab! Perfekte Kaufgelegenheit für 20-30 Sekunden.", "crash");
-  screenShake();
-  renderStockGrid();
-}
-
-function crisisLoop() {
-  const delay = rand(13 * 60000, 17 * 60000);
-  setTimeout(() => {
-    const event = choice(CRISIS_EVENTS);
-    const dur = event.name === "KI-Durchbruch" ? 120000 : 90000;
-    activeCrisis = { event, until: now() + dur };
-    addNewsTicker(event.text, event.boomPct ? "boost" : "crash");
-    pushNotify("🌍 WELT-EREIGNIS", event.text);
-    screenShake();
-    crisisLoop();
-  }, delay);
 }
 
 // ---- Trading Actions ----
@@ -808,12 +963,14 @@ function postMessage(text, stockId, dir) {
   addFeedItem("Du", text, "player");
   S.predictions.push({ stockId, dir, priceAtPost: S.stocks[stockId].price, postedAt: now(), expiresAt: now() + 30000, resolved: false });
 
-  // Kurs-Einfluss (begrenzt auf max +/-15%, SEC-Markt-Einfluss-Limit)
+  // Kurs-Einfluss (begrenzt auf max +/-15%, SEC-Markt-Einfluss-Limit) — wirkt
+  // nur auf deinen eigenen lokalen Kurs, nicht auf den geteilten Markt.
   const st = S.stocks[stockId];
+  const cfg = STOCKS.find((s) => s.id === stockId);
   const influenceCap = 0.15;
   let influence = clamp((S.followers / 30000) * 0.02 * followerMult, 0, influenceCap);
   if (dir === "down") influence = -influence;
-  st.price = Math.max(0.5, st.price * (1 + influence));
+  applyLocalPriceEffect(cfg, influence);
   st.markerUntil = now() + 30000; st.markerType = influence >= 0 ? "boost" : "crash";
 
   // SEC-Manipulations-Tracking: mehrfaches Pushen derselben Aktie kurz hintereinander
@@ -886,7 +1043,7 @@ function fakeNewsCampaign() {
   const success = Math.random() < 0.55;
   const effect = success ? rand(0.1, 0.3) : rand(-0.1, 0.05);
   const st = S.stocks[target.id];
-  st.price = Math.max(0.5, st.price * (1 + effect));
+  applyLocalPriceEffect(target, effect);
   st.markerUntil = now() + 45000; st.markerType = effect >= 0 ? "boost" : "crash";
   addNewsTicker(`Gerücht verbreitet sich über ${target.name}...`, effect >= 0 ? "boost" : "crash");
   pushNotify(success ? "🕶️ Kampagne erfolgreich!" : "🕶️ Kampagne verpufft", `${target.name}: ${pct(effect)}`);
@@ -898,7 +1055,7 @@ function generateMeme(topic) {
   const matches = Math.random() < 0.6;
   const boost = matches ? rand(0.08, 0.22) : rand(-0.03, 0.05);
   const s = S.stocks[st.id];
-  s.price = Math.max(0.5, s.price * (1 + boost));
+  applyLocalPriceEffect(st, boost);
   s.markerUntil = now() + 30000; s.markerType = boost >= 0 ? "boost" : "crash";
   S.followers = Math.round(S.followers * (1 + (matches ? 0.06 : 0.01)) * PRESTIGE.followerMult);
   addFeedItem("Du", `🖼️ Meme gepostet zu ${topic}`, "player");
@@ -926,17 +1083,9 @@ function checkSponsor() {
   }
 }
 
-// Rival-Posts
-function rivalPostLoop() {
-  const rival = choice(RIVALS);
-  const st = choice(STOCKS.filter((s) => s.cat === rival.focus));
-  const dir = Math.random() < 0.5 ? 1 : -1;
-  const effect = dir * rand(0.02, 0.06);
-  S.stocks[st.id].price = Math.max(0.5, S.stocks[st.id].price * (1 + effect));
-  addFeedItem(`${rival.emoji} ${rival.name}`, `${choice(RIVAL_COMMENTS_POOL)} (pusht ${st.name} ${pct(effect)})`, "rival");
-  renderAll();
-  setTimeout(rivalPostLoop, rand(30000, 55000));
-}
+// Rival-Posts werden jetzt deterministisch in detectMarketEvents() (siehe
+// priceTick) ausgelöst, damit sie für alle Spieler zum selben Zeitpunkt
+// dieselbe Aktie bewegen statt bei jedem Client zufällig unabhängig.
 
 // ============================================================
 // MINING
@@ -1230,7 +1379,7 @@ function useInformant(idx) {
     const effect = rand(offer.pct[0], offer.pct[1]);
     setTimeout(() => {
       const st = S.stocks[target.id];
-      st.price = Math.max(0.5, st.price * (1 + effect));
+      applyLocalPriceEffect(target, effect);
       st.markerUntil = now() + 45000; st.markerType = effect >= 0 ? "boost" : "crash";
       addNewsTicker(`${target.name} bewegt sich wie vom Informanten vorhergesagt...`, effect >= 0 ? "boost" : "crash");
       renderAll();
@@ -1660,7 +1809,7 @@ function qteInsiderCall() {
   el.onclick = () => {
     if (done) return; done = true;
     const st = choice(STOCKS);
-    S.stocks[st.id].price *= 1.2;
+    applyLocalPriceEffect(st, 0.2);
     S.stocks[st.id].markerUntil = now() + 20000; S.stocks[st.id].markerType = "boost";
     pushNotify("📞 Heißer Tipp!", `${st.name} +20%!`);
     SND.success(); spawnConfetti(30);
@@ -1692,7 +1841,7 @@ function vipEventLoop() {
       const st = choice(STOCKS);
       const effect = rand(0.1, 0.25);
       pushNotify("🥂 VIP-Event", `Insider verrät dir: ${st.name} wird bald steigen!`);
-      setTimeout(() => { S.stocks[st.id].price *= 1 + effect; S.stocks[st.id].markerUntil = now() + 30000; S.stocks[st.id].markerType = "boost"; renderAll(); }, 8000);
+      setTimeout(() => { applyLocalPriceEffect(st, effect); S.stocks[st.id].markerUntil = now() + 30000; S.stocks[st.id].markerType = "boost"; renderAll(); }, 8000);
     }
     if (hasLux("yacht") && Math.random() < 0.5) {
       const amt = rand(20000, 80000);
@@ -2360,6 +2509,20 @@ function initEventListeners() {
 
 function init() {
   loadGame();
+  // Verhindert, dass ein bereits laufendes Markt-Ereignis (z.B. ein Flash-
+  // Crash, der schon vor dem Laden der Seite begann) fälschlich als "gerade
+  // gestartet" gemeldet wird.
+  const seedTick = marketTickIndex(now());
+  const seedCrash = sharedFlashCrash(seedTick);
+  const seedCrisis = sharedCrisis(seedTick);
+  const seedNews = sharedNews(seedTick);
+  const seedRival = sharedRivalPost(seedTick);
+  marketEventEdge = {
+    flashCrash: !!(seedCrash && seedCrash.active),
+    crisisWindow: seedCrisis && seedCrisis.active ? seedCrisis.windowIdx : -1,
+    newsWindow: seedNews && seedNews.active ? seedNews.windowIdx : -1,
+    rivalWindow: seedRival && seedRival.active ? seedRival.windowIdx : -1,
+  };
   initEventListeners();
   applyTheme();
   cloudInit();
@@ -2376,13 +2539,9 @@ function init() {
   setInterval(saveGame, 10000);
   setInterval(cloudSyncTick, 60000);
   setInterval(refreshTrending, 45000);
-  newsLoop();
-  flashCrashLoop();
-  crisisLoop();
   inboxLoop();
   qteLoop();
   vipEventLoop();
-  rivalPostLoop();
   battleChallengeLoop();
 
   showTutorial();
