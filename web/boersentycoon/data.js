@@ -270,22 +270,6 @@ const INTERVIEW_QUESTIONS = [
   },
 ];
 
-// Influencer-Battle Gegner-Zeilen
-const BATTLE_LINES = [
-  "Deine Aktien-Tipps sind ein Witz! 🤡",
-  "Ich habe 10x mehr Reichweite als du!",
-  "Meine Follower kaufen alles, was ich sage!",
-  "Du wirst nie an mich rankommen!",
-];
-
-// Strategie-Karten
-const STRATEGY_CARDS = [
-  { id: "short_squeeze", name: "Short-Squeeze auslösen", desc: "Zwingt Shortseller zum Eindecken — gewählte Aktie +25% für 20s.", unlockLevel: 4 },
-  { id: "pr_ablenkung", name: "PR-Ablenkung für SEC", desc: "Senkt SEC-Risiko sofort um 25 Punkte.", unlockLevel: 3 },
-  { id: "crypto_pump", name: "Crypto-Pump", desc: "Alle Krypto-nahen Aktien +15% für 15s.", unlockLevel: 5 },
-  { id: "market_calm", name: "Markt-Beruhigung", desc: "Stoppt einen laufenden Flash-Crash sofort.", unlockLevel: 6 },
-];
-
 // Themes (Freischaltung nach Vermögen)
 const THEMES = [
   { id: "default", name: "Dark Standard", requiresNetWorth: 0 },

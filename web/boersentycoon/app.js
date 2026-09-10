@@ -66,8 +66,6 @@ function freshState() {
     ipo: { founded: false, name: "", logo: "🏢", ticker: "", price: 0, issuePrice: 0,
       playerPct: 100, marketCap: 0, dividendRate: 2, hqUnlocked: false, hostileSince: 0 },
     stats: { athNetWorth: STARTING_CASH, biggestWin: 0, biggestLoss: 0, totalTrades: 0, startedAt: now() },
-    strategyCards: { owned: {}, cooldowns: {} },
-    mgCooldowns: {},
     rouletteHistory: [],
     autopilot: true,
     overclockUntil: 0, overclockCdUntil: 0,
@@ -430,8 +428,12 @@ function confettiLoop() {
 // Aufrufe lassen ihn weg und bekommen automatisch den dezenten Standard-Ton;
 // nur wirklich markante Momente (Level-Up, Razzia, Crash, ...) geben einen
 // eigenen, auffälligeren Ton mit.
+const PUSH_MAX_VISIBLE = 3;
 function pushNotify(title, text, tone) {
   const stack = $("push-stack");
+  // Nie mehr als PUSH_MAX_VISIBLE Meldungen gleichzeitig stapeln — die
+  // älteste fliegt sofort raus, statt dass der Bildschirm zugemüllt wird.
+  while (stack.children.length >= PUSH_MAX_VISIBLE) stack.removeChild(stack.firstChild);
   const el = document.createElement("div");
   el.className = "push-item";
   el.innerHTML = `<div class="pt">${title}</div><div>${text}</div>`;
@@ -514,7 +516,14 @@ function priceTick() {
     if (np > st.ath) {
       const wasAth = st.ath;
       st.ath = np;
-      if (wasAth > 0 && np / wasAth > 1.002 && Math.random() < 0.3) onAllTimeHigh(cfg);
+      // Deutlich seltener melden: mind. 1% über dem alten Hoch, niedrigere
+      // Trefferchance, und je Aktie höchstens alle 90s eine Meldung —
+      // sonst spammt ein einzelner volatiler Titel den Eilmeldungs-Stapel zu.
+      const cooledDown = t - (st.athNotifiedAt || 0) > 90000;
+      if (wasAth > 0 && np / wasAth > 1.01 && cooledDown && Math.random() < 0.2) {
+        st.athNotifiedAt = t;
+        onAllTimeHigh(cfg);
+      }
     }
   });
   // Coin-Preis eigener kleiner Random-Walk
@@ -691,9 +700,11 @@ function payDividends() {
   }
   if (total > 0.01) {
     S.cash += total;
+    // Floating-Zahl + Sound reichen als Feedback — keine zusätzliche
+    // Eilmeldung mehr, das lief bei jedem Aktienbesitz alle 30s auf und
+    // hat den Eilmeldungs-Stapel zugemüllt.
     floatAtEl($("hud-cash"), "+" + fmtMoney(total), "pos");
     SND.dividend();
-    pushNotify("💵 Dividende erhalten", `+${fmtMoney(total)} aus deinem Aktienbesitz.`, "silent");
   }
 }
 
@@ -1311,204 +1322,11 @@ function openModal(html) { $("modal-box").innerHTML = html; $("modal-overlay").h
 function closeModal() { $("modal-overlay").hidden = true; $("modal-box").innerHTML = ""; SND.modalClose(); }
 $("modal-overlay") && ($("modal-overlay").onclick = (e) => { if (e.target.id === "modal-overlay") closeModal(); });
 
-const MG_COOLDOWN_MS = 20000;
 const MG_MIN_STAKE = 10;
 
-function startMinigame(kind) {
-  if ((S.mgCooldowns[kind] || 0) > now()) { pushNotify("⏳ Noch nicht bereit", "Dieses Mini-Game braucht noch eine kurze Pause."); return; }
-  const input = $("stake-" + kind);
-  const stake = Math.floor(parseFloat(input ? input.value : 0) || 0);
-  if (stake < MG_MIN_STAKE) { pushNotify("⚠️ Einsatz zu niedrig", `Mindesteinsatz: ${fmtMoney(MG_MIN_STAKE)}`); return; }
-  if (stake > S.cash) { pushNotify("⚠️ Nicht genug Geld", "Dein Einsatz übersteigt deine Kasse."); return; }
-  if (kind === "chartcrash") return mgChartCrash(stake);
-  if (kind === "hacker") return mgHacker(stake);
-  if (kind === "interview") return mgInterview(stake);
-  if (kind === "battle") return mgBattle(false, stake);
-}
-
-// Zieht/erhaelt den Einsatz je nach Multiplikator (0 = Totalverlust, 1 = break-even,
-// >1 = Gewinn), floatet den NETTO-Gewinn/-Verlust und setzt die Abklingzeit.
-function resolveStake(kind, stake, multiplier, el) {
-  const payout = stake * multiplier;
-  const net = payout - stake;
-  S.cash += net;
-  if (net > S.stats.biggestWin) S.stats.biggestWin = net;
-  if (net < S.stats.biggestLoss) S.stats.biggestLoss = net;
-  floatMoney(el, net);
-  net >= 0 ? SND.gain() : SND.loss();
-  if (net > 0 && net > netWorth() * 0.03) spawnConfetti(50);
-  S.mgCooldowns[kind] = now() + MG_COOLDOWN_MS;
-  renderAll();
-  return net;
-}
-
-function renderMinigameCooldowns() {
-  ["chartcrash", "hacker", "interview", "battle"].forEach((kind) => {
-    const remain = Math.max(0, (S.mgCooldowns[kind] || 0) - now());
-    const cd = $("cd-" + kind);
-    const btn = document.querySelector(`[data-mg="${kind}"]`);
-    if (cd) cd.textContent = remain > 0 ? `⏳ ${Math.ceil(remain / 1000)}s` : "";
-    if (btn) btn.disabled = remain > 0;
-  });
-}
-
-function mgChartCrash(stake) {
-  const startPrice = 100;
-  let points = [startPrice];
-  const crashAt = rand(4000, 9000);
-  const startT = now();
-  let sold = false;
-  const html = `<h2>📉 Chart-Crash</h2><p>Einsatz: <strong style="color:var(--gold)">${fmtMoney(stake)}</strong> — klicke SELL bevor der Kurs abstürzt!</p>
-    <canvas id="cc-canvas" width="400" height="180" style="width:100%;background:var(--bg);border-radius:8px;border:1px solid var(--border)"></canvas>
-    <div class="modal-actions"><button class="btn btn-danger" id="cc-sell" style="width:100%;font-size:1.1rem;padding:14px">💰 SELL!</button></div>`;
-  openModal(html);
-  const canvas = $("cc-canvas"), ctx = canvas.getContext("2d");
-  let raf, crashed = false, peak = startPrice;
-  function draw() {
-    const t = now() - startT;
-    if (!crashed) {
-      const p = points[points.length - 1] * (1 + rand(-0.01, 0.028));
-      points.push(p);
-      if (p > peak) peak = p;
-      if (t > crashAt) crashed = true;
-    } else {
-      points.push(points[points.length - 1] * rand(0.75, 0.9));
-    }
-    if (points.length > 80) points.shift();
-    ctx.clearRect(0, 0, canvas.width, canvas.height);
-    ctx.strokeStyle = crashed ? "#ff4d6d" : "#2ee6a6";
-    ctx.lineWidth = 2; ctx.beginPath();
-    const mn = Math.min(...points), mx = Math.max(...points, mn + 1);
-    points.forEach((p, i) => {
-      const x = (i / (points.length - 1)) * canvas.width;
-      const y = canvas.height - ((p - mn) / (mx - mn)) * (canvas.height - 10) - 5;
-      i === 0 ? ctx.moveTo(x, y) : ctx.lineTo(x, y);
-    });
-    ctx.stroke();
-    if (!sold) raf = requestAnimationFrame(draw);
-  }
-  draw();
-  $("cc-sell").onclick = () => {
-    if (sold) return;
-    sold = true; cancelAnimationFrame(raf);
-    const cur = points[points.length - 1];
-    const ratio = cur / peak;
-    // Nicht abgestuerzt: 0.5x (schlechtes Timing) bis 3x (nah am Peak verkauft).
-    // Abgestuerzt bevor verkauft: fast immer ein Verlust (max. 25% zurueck).
-    const multiplier = crashed ? clamp(ratio * 0.3, 0, 0.25) : clamp(0.5 + ratio * 2.5, 0.5, 3);
-    const net = resolveStake("chartcrash", stake, multiplier, $("cc-sell"));
-    const title = crashed ? (net >= 0 ? "😅 Knapp Gewinn gemacht!" : "💥 Crash erwischt!") : (net >= 0 ? "🏆 Guter Ausstieg!" : "😬 Zu früh verkauft");
-    pushNotify(title, `${net >= 0 ? "+" : ""}${fmtMoney(net)}`);
-    closeModal();
-  };
-  setTimeout(() => {
-    if (!sold) {
-      sold = true; cancelAnimationFrame(raf);
-      const net = resolveStake("chartcrash", stake, 0, $("cc-sell"));
-      pushNotify("💥 Zu spät!", `Einsatz verloren: ${fmtMoney(-net)}`);
-      closeModal();
-    }
-  }, 11000);
-}
-
-function mgHacker(stake) {
-  const code = String(randInt(1000, 9999));
-  const html = `<h2>🛡️ Hacker-Abwehr</h2><p>Einsatz: <strong style="color:var(--gold)">${fmtMoney(stake)}</strong> — merke dir den Code!</p>
-    <div style="font-size:2.4rem;text-align:center;letter-spacing:0.3em;font-weight:800;color:var(--gold)" id="hk-code">${code}</div>`;
-  openModal(html);
-  setTimeout(() => {
-    $("modal-box").innerHTML = `<h2>🛡️ Hacker-Abwehr</h2><p>Gib den Code ein, bevor die Zeit abläuft!</p>
-      <input type="text" id="hk-input" maxlength="4" style="width:100%;font-size:1.5rem;text-align:center;padding:10px;background:var(--bg);border:1px solid var(--border);border-radius:8px;color:var(--text)">
-      <div class="modal-actions"><button class="btn btn-primary" id="hk-submit">Bestätigen</button></div>`;
-    $("hk-input").focus();
-    let done = false;
-    const check = () => {
-      const val = $("hk-input").value;
-      if (val.length === 4) submit();
-    };
-    function submit() {
-      if (done) return;
-      done = true;
-      const val = $("hk-input") ? $("hk-input").value : "";
-      const ok = val === code;
-      const net = resolveStake("hacker", stake, ok ? 2.2 : 0, $("hk-submit"));
-      if (ok) pushNotify("🛡️ Erfolgreich abgewehrt!", `+${fmtMoney(net)}`);
-      else pushNotify("💀 Gehackt!", `Verloren: ${fmtMoney(-net)}`);
-      closeModal();
-    }
-    $("hk-input").oninput = check;
-    $("hk-submit").onclick = submit;
-    setTimeout(() => { if (!$("modal-overlay").hidden && $("hk-input")) submit(); }, 6000);
-  }, 1500);
-}
-
-function mgInterview(stake) {
-  let round = 0, hype = 0, trust = 0;
-  function showRound() {
-    if (round >= 3) {
-      S.followers = Math.round(S.followers * (1 + hype / 100) * PRESTIGE.followerMult);
-      S.trust = clamp(S.trust + trust, 0, 100);
-      // Schwacher Auftritt (wenig Hype) => Verlust; starker Auftritt => bis zu 3x.
-      const multiplier = clamp(hype / 12, 0.3, 3);
-      const net = resolveStake("interview", stake, multiplier, $("modal-box"));
-      pushNotify("🎤 Interview beendet!", `+${hype.toFixed(0)}% Follower-Hype, ${net >= 0 ? "+" : ""}${fmtMoney(net)}`);
-      closeModal();
-      return;
-    }
-    const q = INTERVIEW_QUESTIONS[round];
-    const html = `<h2>🎤 PR-Interview — Runde ${round + 1}/3</h2><p style="font-size:0.78rem;color:var(--text-dim)">Einsatz: ${fmtMoney(stake)}</p><p>${q.q}</p>` +
-      q.options.map((o, i) => `<button class="btn btn-secondary" data-oi="${i}" style="display:block;width:100%;margin:6px 0;text-align:left">${o.text}</button>`).join("");
-    openModal(html);
-    q.options.forEach((o, i) => {
-      $("modal-box").querySelector(`[data-oi="${i}"]`).onclick = () => {
-        hype += o.hype; trust += o.trust; round++; showRound();
-      };
-    });
-  }
-  showRound();
-}
-
-function mgBattle(auto, stake) {
-  const rival = choice(RIVALS);
-  if (auto) { resolveBattleAuto(rival); return; }
-  let round = 0, hits = 0;
-  function showRound() {
-    if (round >= 3) {
-      const win = hits >= 2;
-      battleFlavor(rival, win);
-      // 0 Treffer: Totalverlust. 1: Teilverlust. 2: Gewinn. 3: großer Gewinn.
-      const multiplier = [0, 0.4, 1.6, 2.8][hits];
-      const net = resolveStake("battle", stake, multiplier, $("bt-btn"));
-      pushNotify(win ? "⚔️ Sieg!" : "😞 Niederlage", `${hits}/3 Treffer — ${net >= 0 ? "+" : ""}${fmtMoney(net)}`);
-      closeModal();
-      return;
-    }
-    const zoneStart = rand(30, 55);
-    const html = `<h2>⚔️ Battle vs. ${rival.emoji} ${rival.name}</h2>
-      <p style="font-size:0.78rem;color:var(--text-dim)">Einsatz: ${fmtMoney(stake)}</p>
-      <p>"${choice(BATTLE_LINES)}"</p>
-      <p>Runde ${round + 1}/3 — Klicke KONTERN wenn der Zeiger in der Zone ist!</p>
-      <div style="height:24px;background:var(--bg);border-radius:8px;position:relative;overflow:hidden;border:1px solid var(--border)">
-        <div style="position:absolute;left:${zoneStart}%;width:20%;height:100%;background:var(--accent);opacity:0.4"></div>
-        <div id="bt-marker" style="position:absolute;top:0;left:0;width:4px;height:100%;background:var(--gold)"></div>
-      </div>
-      <div class="modal-actions"><button class="btn btn-primary" id="bt-btn" style="width:100%">⚔️ KONTERN!</button></div>`;
-    openModal(html);
-    const marker = $("bt-marker");
-    const start = now();
-    let raf, pos = 0;
-    function anim() { const t = (now() - start) / 1000; pos = (Math.sin(t * 2.4) * 0.5 + 0.5) * 96; marker.style.left = pos + "%"; raf = requestAnimationFrame(anim); }
-    anim();
-    $("bt-btn").onclick = () => {
-      cancelAnimationFrame(raf);
-      if (pos >= zoneStart && pos <= zoneStart + 20) { hits++; SND.success(); } else SND.click();
-      round++; showRound();
-    };
-  }
-  showRound();
-}
 function resolveBattleAuto(rival) {
-  const winChance = clamp(0.5 + S.followers / 200000, 0.3, 0.95);
+  let winChance = clamp(0.5 + S.followers / 200000, 0.3, 0.95);
+  if (automationActive("pr_agentur") || automationActive("social_botnet")) winChance = clamp(winChance + 0.15, 0.3, 0.97);
   applyBattleResult(rival, Math.random() < winChance);
 }
 // Follower-/Feed-Reaktion, gemeinsam genutzt von automatischen und manuellen Battles.
@@ -1531,23 +1349,18 @@ function applyBattleResult(rival, win) {
 }
 function battleChallengeLoop() {
   setTimeout(() => {
-    if (automationActive("pr_agentur") || automationActive("social_botnet")) {
-      resolveBattleAuto(choice(RIVALS));
-    } else {
-      pushNotify("⚔️ Herausforderung!", choice(RIVALS).name + " fordert dich zum Battle! Öffne den Mini-Games-Tab.");
-    }
+    resolveBattleAuto(choice(RIVALS));
     battleChallengeLoop();
   }, rand(90000, 160000));
 }
 
 // ============================================================
 // CASINO (Roulette, Blackjack, Spielautomat) — echtes Einsatz-Risiko,
-// kein Cooldown (im Gegensatz zu den Skill-Mini-Games oben absichtlich
-// zum wiederholten Zocken gedacht).
+// ohne Cooldown, zum wiederholten Zocken gedacht.
 // ============================================================
 
 // Zahlt/kassiert einen Einsatz nach Multiplikator aus (0 = Totalverlust,
-// 1 = break-even, >1 = Gewinn). Wie resolveStake(), aber ohne Cooldown.
+// 1 = break-even, >1 = Gewinn).
 function resolveBet(stake, multiplier, el) {
   const payout = stake * multiplier;
   const net = payout - stake;
@@ -1827,30 +1640,6 @@ function initCasino() {
     b.classList.add("active");
   }));
   $("dice-roll").addEventListener("click", rollDice);
-}
-
-// ============================================================
-// STRATEGY CARDS
-// ============================================================
-function playCard(id) {
-  const card = STRATEGY_CARDS.find((c) => c.id === id);
-  if (!card || !S.strategyCards.owned[id]) return;
-  if ((S.strategyCards.cooldowns[id] || 0) > now()) { pushNotify("⏳ Abklingzeit", "Diese Karte ist noch nicht bereit."); return; }
-  S.strategyCards.cooldowns[id] = now() + 90000;
-  if (id === "short_squeeze") { const st = choice(STOCKS); S.stocks[st.id].price *= 1.25; S.stocks[st.id].markerUntil = now() + 20000; S.stocks[st.id].markerType = "boost"; pushNotify("🃏 Short-Squeeze!", `${st.name} +25%!`); }
-  if (id === "pr_ablenkung") { S.secHeat = clamp(S.secHeat - 25, 0, 100); pushNotify("🃏 PR-Ablenkung", "SEC-Risiko -25 Punkte."); }
-  if (id === "crypto_pump") { ["cryptomoon", "memecoin", "spacexplore"].forEach((id2) => { S.stocks[id2].price *= 1.15; S.stocks[id2].markerUntil = now() + 15000; S.stocks[id2].markerType = "boost"; }); pushNotify("🃏 Crypto-Pump!", "Krypto-nahe Aktien +15%!"); }
-  if (id === "market_calm") { STOCKS.forEach((s) => (S.stocks[s.id].crashUntil = 0)); pushNotify("🃏 Markt beruhigt", "Ein laufender Crash wurde gestoppt."); }
-  spawnConfetti(40);
-  renderAll();
-}
-function grantCardChance() {
-  STRATEGY_CARDS.forEach((c) => {
-    if (!S.strategyCards.owned[c.id] && level() >= c.unlockLevel && Math.random() < 0.15) {
-      S.strategyCards.owned[c.id] = true;
-      pushNotify("🃏 Neue Strategie-Karte!", c.name + " freigeschaltet!");
-    }
-  });
 }
 
 // ============================================================
@@ -2308,18 +2097,6 @@ function renderAutomation() {
   $("automation-pct").textContent = p + "%";
 }
 
-function renderStrategyCards() {
-  $("strategy-cards").innerHTML = STRATEGY_CARDS.map((c) => {
-    const owned = S.strategyCards.owned[c.id];
-    const onCd = (S.strategyCards.cooldowns[c.id] || 0) > now();
-    return `<div class="card-item ${owned ? "" : "locked"}">
-      <h4>${c.name}</h4><p style="font-size:0.72rem">${c.desc}</p>
-      ${owned ? `<button class="btn btn-primary" data-card="${c.id}" ${onCd ? "disabled" : ""}>${onCd ? "Abklingzeit..." : "Einsetzen"}</button>` : `<div class="cd-note">Ab Level ${c.unlockLevel}</div>`}
-    </div>`;
-  }).join("");
-  $("strategy-cards").querySelectorAll("[data-card]").forEach((b) => (b.onclick = () => playCard(b.dataset.card)));
-}
-
 function renderThemes() {
   $("theme-grid").innerHTML = THEMES.map((t) => {
     const unlocked = netWorth() >= t.requiresNetWorth;
@@ -2345,7 +2122,7 @@ function applyTheme() {
 function renderAll() {
   renderHud(); renderSecBar(); renderStockGrid(); renderPortfolio();
   renderSocial(); renderMining(); renderUpgrades(); renderImmobilien();
-  renderInbox(); renderIpo(); renderStats(); renderAutomation(); renderStrategyCards();
+  renderInbox(); renderIpo(); renderStats(); renderAutomation();
   renderAccountUi();
 }
 
@@ -2507,7 +2284,6 @@ function secondTick() {
   ipoTick();
   autopilotTick();
   analyseCdTick();
-  renderMinigameCooldowns();
   checkSponsor();
   renderHud();
   renderAutomation();
@@ -2520,7 +2296,6 @@ function secondTick() {
     S.skillPoints += lvl - S._lastLevel;
     pushNotify("⭐ Level Up!", `Level ${lvl} erreicht! +${lvl - S._lastLevel} Talentpunkt(e)`, "levelUp");
     spawnConfetti(50);
-    grantCardChance();
     S._lastLevel = lvl;
   }
 }
@@ -2559,8 +2334,6 @@ function initEventListeners() {
   });
   $("btn-buyback").addEventListener("click", buybackShares);
   $("ipo-dividend-slider").addEventListener("input", (e) => { S.ipo.dividendRate = parseFloat(e.target.value); $("ipo-dividend-value").textContent = e.target.value + "%"; });
-
-  document.querySelectorAll("[data-mg]").forEach((b) => b.addEventListener("click", () => startMinigame(b.dataset.mg)));
 
   $("chk-sound").addEventListener("change", (e) => {
     if (e.target.checked) { S.soundOn = true; SND.toggle(); } else { SND.toggle(); S.soundOn = false; }

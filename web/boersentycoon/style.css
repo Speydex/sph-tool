@@ -261,7 +261,7 @@ h3 { margin: 18px 0 8px; font-size: 1rem; color: var(--text); font-family: var(-
 .stock-owned { font-size: 0.72rem; color: var(--text-dim); margin-top: 4px; }
 .qty-input { width: 100%; margin-top: 6px; background: var(--bg); border: 1px solid var(--border); color: var(--text); border-radius: 6px; padding: 4px 6px; font-size: 0.8rem; }
 
-.portfolio-box, .feed-box, .costs-box, .strategy-cards-box, .prestige-box { background: var(--card); border: 1px solid var(--border); border-radius: var(--radius); padding: 12px; margin-top: 14px; }
+.portfolio-box, .feed-box, .costs-box, .prestige-box { background: var(--card); border: 1px solid var(--border); border-radius: var(--radius); padding: 12px; margin-top: 14px; }
 .portfolio-list { display: grid; gap: 6px; }
 .portfolio-row { display: flex; justify-content: space-between; gap: 10px; font-size: 0.82rem; padding: 4px 0; border-bottom: 1px dashed var(--border); }
 .portfolio-row > span:last-child { font-family: var(--font-mono); font-variant-numeric: tabular-nums; text-align: right; }
@@ -380,16 +380,6 @@ h3 { margin: 18px 0 8px; font-size: 1rem; color: var(--text); font-family: var(-
 .ipo-controls { display: flex; gap: 14px; align-items: center; margin-top: 12px; flex-wrap: wrap; }
 .hq-box { margin-top: 14px; font-size: 0.85rem; color: var(--gold); }
 
-/* ============ Mini-Games ============ */
-.minigame-hub { display: grid; grid-template-columns: repeat(auto-fill, minmax(220px,1fr)); gap: 10px; }
-.mg-card { background: var(--card); border: 1px solid var(--border); border-radius: var(--radius); padding: 14px; text-align: center; display: flex; flex-direction: column; gap: 8px; }
-.mg-card h3 { margin-top: 0; margin-bottom: 0; }
-.mg-card p { font-size: 0.78rem; color: var(--text-dim); margin: 0; }
-.mg-card .btn:disabled { opacity: 0.35; }
-.mg-stake-label { display: flex; flex-direction: column; gap: 4px; font-size: 0.72rem; color: var(--text-dim); text-align: left; }
-.mg-stake-input { width: 100%; background: var(--bg); border: 1px solid var(--border); color: var(--text); border-radius: 8px; padding: 8px; font-family: var(--font-mono); font-variant-numeric: tabular-nums; }
-.mg-cd { font-size: 0.72rem; color: var(--gold); min-height: 1em; font-family: var(--font-mono); font-variant-numeric: tabular-nums; }
-
 /* ============ Casino ============ */
 .casino-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(270px, 1fr)); gap: 12px; margin-top: 10px; }
 .casino-game { background: var(--card); border: 1px solid var(--border); border-radius: var(--radius); padding: 16px; }
@@ -484,10 +474,6 @@ h3 { margin: 18px 0 8px; font-size: 1rem; color: var(--text); font-family: var(-
 .lb-name { font-family: var(--font-mono); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; display: block; }
 .lb-title { color: var(--text-dim); font-size: 0.68rem; }
 .lb-worth { font-family: var(--font-mono); font-variant-numeric: tabular-nums; font-weight: 700; color: var(--green); white-space: nowrap; }
-.strategy-cards { display: grid; grid-template-columns: repeat(auto-fill, minmax(180px,1fr)); gap: 10px; }
-.card-item { background: linear-gradient(160deg, var(--card), var(--bg)); border: 1px solid var(--accent); border-radius: 10px; padding: 10px; text-align: center; }
-.card-item.locked { opacity: 0.4; border-color: var(--border); }
-.card-item .cd-note { font-size: 0.7rem; color: var(--text-dim); }
 
 /* ============ Stats ============ */
 .stats-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(180px,1fr)); gap: 10px; }
