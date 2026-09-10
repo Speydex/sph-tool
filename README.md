@@ -87,6 +87,8 @@ Razzia-Minigame, Postfach mit Multiple-Choice-Chats & Informanten,
 eigener Börsengang (IPO) samt Roadshow und feindlichen Übernahmen,
 Mini-Games (Chart-Crash, Hacker-Abwehr, PR-Interview, Influencer-Battle),
 Talentbaum, Prestige/Ruhestand-System und freischaltbare Dashboard-Themes.
+Optional: Login mit E-Mail/Passwort für geräteübergreifende Cloud-Spielstände
+— Einrichtung in [`web/boersentycoon/FIREBASE_SETUP.md`](web/boersentycoon/FIREBASE_SETUP.md).
 
 ```powershell
 # Lokal ausprobieren (irgendein statischer Server reicht):

@@ -106,7 +106,147 @@ function loadGame() {
   return false;
 }
 function saveGame() {
-  try { localStorage.setItem(SAVE_KEY, JSON.stringify(S)); } catch (e) {}
+  try {
+    S.savedAt = now();
+    localStorage.setItem(SAVE_KEY, JSON.stringify(S));
+  } catch (e) {}
+}
+function hasRealProgress(state) {
+  return state.cash !== STARTING_CASH || state.stats.totalTrades > 0 || state.rigs.length > 0
+    || state.followers !== 50 || Object.keys(state.upgrades).length > 0 || state.ipo.founded;
+}
+
+// ============================================================
+// CLOUD AUTH & SYNC (Firebase, optional)
+// ============================================================
+let fbApp = null, fbAuth = null, fbDb = null;
+let cloudUser = null;
+let cloudSyncing = false;
+let cloudLastSyncedAt = 0;
+
+function cloudInit() {
+  if (typeof FIREBASE_CONFIGURED === "undefined" || !FIREBASE_CONFIGURED) return;
+  if (typeof firebase === "undefined") { console.warn("Firebase-SDK konnte nicht geladen werden — Cloud-Speicher deaktiviert."); return; }
+  try {
+    fbApp = firebase.initializeApp(FIREBASE_CONFIG);
+    fbAuth = firebase.auth();
+    fbDb = firebase.firestore();
+    fbAuth.onAuthStateChanged(onCloudAuthChanged);
+  } catch (e) { console.warn("Firebase-Init fehlgeschlagen — Cloud-Speicher deaktiviert.", e); fbApp = null; }
+}
+
+function onCloudAuthChanged(user) {
+  cloudUser = user;
+  renderAccountUi();
+  if (user) resolveCloudOnLogin();
+}
+
+async function resolveCloudOnLogin() {
+  if (!fbDb || !cloudUser) return;
+  try {
+    const doc = await fbDb.collection("saves").doc(cloudUser.uid).get();
+    if (!doc.exists) { await cloudSaveNow(true); return; }
+    const cloud = doc.data();
+    const cloudState = JSON.parse(cloud.json);
+    const localHasProgress = hasRealProgress(S);
+    const cloudHasProgress = hasRealProgress(cloudState);
+    if (!localHasProgress && cloudHasProgress) {
+      applyCloudState(cloudState);
+    } else if (localHasProgress && cloudHasProgress && Math.abs((S.savedAt || 0) - (cloud.updatedAtMs || 0)) > 15000) {
+      askCloudConflict(cloudState, cloud.updatedAtMs || 0);
+    } else if (!localHasProgress && !cloudHasProgress) {
+      applyCloudState(cloudState);
+    } else {
+      await cloudSaveNow(true);
+    }
+  } catch (e) { console.warn("Cloud-Spielstand konnte nicht geladen werden.", e); }
+}
+
+function applyCloudState(cloudState) {
+  S = Object.assign(freshState(), cloudState);
+  STOCKS.forEach((s) => { if (!S.stocks[s.id]) S.stocks[s.id] = freshState().stocks[s.id]; });
+  saveGame();
+  renderAll();
+  applyTheme();
+  pushNotify("☁️ Cloud-Spielstand geladen", "Dein Fortschritt von einem anderen Gerät wurde geladen.");
+}
+
+function askCloudConflict(cloudState, cloudUpdatedAtMs) {
+  const cloudDate = cloudUpdatedAtMs ? new Date(cloudUpdatedAtMs).toLocaleString("de-DE") : "unbekannt";
+  const localDate = S.savedAt ? new Date(S.savedAt).toLocaleString("de-DE") : "unbekannt";
+  openModal(`
+    <h2>☁️ Zwei Spielstände gefunden</h2>
+    <p>Auf diesem Gerät und in deinem Account gibt es unterschiedliche Spielstände. Welchen möchtest du behalten? Der jeweils andere geht dabei verloren.</p>
+    <p style="font-size:0.8rem;color:var(--text-dim)">Cloud zuletzt gespeichert: ${cloudDate}<br>Dieses Gerät zuletzt gespeichert: ${localDate}</p>
+    <div class="modal-actions">
+      <button class="btn btn-secondary" id="conflict-local">Diesen Browser-Stand behalten</button>
+      <button class="btn btn-primary" id="conflict-cloud">Cloud-Stand laden</button>
+    </div>`);
+  $("conflict-cloud").onclick = () => { applyCloudState(cloudState); closeModal(); };
+  $("conflict-local").onclick = () => { cloudSaveNow(true); closeModal(); pushNotify("☁️ Hochgeladen", "Dein lokaler Spielstand überschreibt jetzt die Cloud."); };
+}
+
+async function cloudSaveNow(silent) {
+  if (!fbDb || !cloudUser) return;
+  cloudSyncing = true;
+  renderAccountUi();
+  try {
+    S.savedAt = now();
+    await fbDb.collection("saves").doc(cloudUser.uid).set({
+      json: JSON.stringify(S),
+      email: cloudUser.email,
+      updatedAtMs: S.savedAt,
+    });
+    cloudLastSyncedAt = now();
+    if (!silent) pushNotify("☁️ Gespeichert", "Dein Fortschritt wurde in die Cloud hochgeladen.");
+  } catch (e) { if (!silent) pushNotify("⚠️ Sync fehlgeschlagen", "Cloud-Speichern hat nicht geklappt. Versuch's gleich nochmal."); }
+  cloudSyncing = false;
+  renderAccountUi();
+}
+
+function cloudSyncTick() {
+  if (cloudUser && !cloudSyncing) cloudSaveNow(true);
+}
+
+async function authRegister(email, password) {
+  if (!fbAuth) return { error: "Cloud-Speicher ist nicht eingerichtet." };
+  try {
+    const cred = await fbAuth.createUserWithEmailAndPassword(email, password);
+    await cred.user.sendEmailVerification();
+    return { ok: true };
+  } catch (e) { return { error: authErrorText(e) }; }
+}
+async function authLogin(email, password) {
+  if (!fbAuth) return { error: "Cloud-Speicher ist nicht eingerichtet." };
+  try { await fbAuth.signInWithEmailAndPassword(email, password); return { ok: true }; }
+  catch (e) { return { error: authErrorText(e) }; }
+}
+async function authLogout() {
+  if (cloudUser) await cloudSaveNow(true);
+  if (fbAuth) await fbAuth.signOut();
+}
+async function authResetPassword(email) {
+  if (!fbAuth) return { error: "Cloud-Speicher ist nicht eingerichtet." };
+  try { await fbAuth.sendPasswordResetEmail(email); return { ok: true }; }
+  catch (e) { return { error: authErrorText(e) }; }
+}
+async function authResendVerification() {
+  if (cloudUser && !cloudUser.emailVerified) {
+    try { await cloudUser.sendEmailVerification(); pushNotify("📧 E-Mail gesendet", "Bestätigungslink wurde erneut verschickt."); }
+    catch (e) { pushNotify("⚠️ Fehler", "Konnte die E-Mail nicht senden. Versuch's später nochmal."); }
+  }
+}
+function authErrorText(e) {
+  const map = {
+    "auth/email-already-in-use": "Diese E-Mail-Adresse ist bereits registriert.",
+    "auth/invalid-email": "Das ist keine gültige E-Mail-Adresse.",
+    "auth/weak-password": "Das Passwort muss mindestens 6 Zeichen haben.",
+    "auth/user-not-found": "Kein Account mit dieser E-Mail gefunden.",
+    "auth/wrong-password": "Falsches Passwort.",
+    "auth/invalid-credential": "E-Mail oder Passwort ist falsch.",
+    "auth/too-many-requests": "Zu viele Versuche. Bitte kurz warten.",
+  };
+  return map[e.code] || "Etwas ist schiefgelaufen. Bitte nochmal versuchen.";
 }
 
 // ============================================================
@@ -1745,6 +1885,98 @@ function renderAll() {
   renderHud(); renderSecBar(); renderStockGrid(); renderPortfolio();
   renderSocial(); renderMining(); renderUpgrades(); renderImmobilien();
   renderInbox(); renderIpo(); renderStats(); renderAutomation(); renderStrategyCards();
+  renderAccountUi();
+}
+
+function renderAccountUi() {
+  const btn = $("btn-account"), box = $("account-box");
+  if (!btn || !box) return;
+  if (!FIREBASE_CONFIGURED) {
+    btn.textContent = "👤 Cloud inaktiv";
+    btn.className = "btn-account offline-only";
+    box.innerHTML = `<p class="account-pitch">Mit Account speicherst du deinen Fortschritt geräteübergreifend. Diese Funktion ist auf dieser Seite noch nicht eingerichtet (kein Cloud-Projekt hinterlegt) — dein Spielstand bleibt trotzdem ganz normal in diesem Browser gespeichert.</p>`;
+    return;
+  }
+  if (!cloudUser) {
+    btn.textContent = "👤 Anmelden";
+    btn.className = "btn-account";
+    box.innerHTML = `<p class="account-pitch">Melde dich mit E-Mail an, um deinen Fortschritt geräteübergreifend zu speichern — dein bisheriger Browser-Spielstand geht dabei nicht verloren.</p>
+      <div class="account-actions"><button class="btn btn-primary" id="account-login-btn">Anmelden / Registrieren</button></div>`;
+    $("account-login-btn").onclick = () => openAuthModal("login");
+    return;
+  }
+  const shortEmail = cloudUser.email.length > 16 ? cloudUser.email.slice(0, 14) + "…" : cloudUser.email;
+  btn.textContent = "👤 " + shortEmail;
+  btn.className = "btn-account " + (cloudSyncing ? "syncing" : "synced");
+  const initial = cloudUser.email[0].toUpperCase();
+  const lastSync = cloudLastSyncedAt ? new Date(cloudLastSyncedAt).toLocaleTimeString("de-DE") : "noch nicht";
+  box.innerHTML = `
+    <div class="account-row">
+      <div class="account-avatar">${initial}</div>
+      <div class="account-info">
+        <div class="account-email">${cloudUser.email}</div>
+        <div class="account-meta ${cloudUser.emailVerified ? "verified" : "unverified"}">${cloudUser.emailVerified ? "✅ E-Mail bestätigt" : "⚠️ E-Mail noch nicht bestätigt"}</div>
+        <div class="account-meta">${cloudSyncing ? "☁️ Synchronisiere…" : "☁️ Zuletzt synchronisiert: " + lastSync}</div>
+      </div>
+    </div>
+    <div class="account-actions">
+      ${!cloudUser.emailVerified ? '<button class="btn btn-secondary" id="account-resend-btn">Bestätigungsmail erneut senden</button>' : ""}
+      <button class="btn btn-secondary" id="account-sync-btn">Jetzt synchronisieren</button>
+      <button class="btn btn-danger" id="account-logout-btn">Abmelden</button>
+    </div>`;
+  if (!cloudUser.emailVerified) $("account-resend-btn").onclick = authResendVerification;
+  $("account-sync-btn").onclick = () => cloudSaveNow(false);
+  $("account-logout-btn").onclick = () => authLogout();
+}
+
+function openAuthModal(initialTab) {
+  if (!FIREBASE_CONFIGURED) {
+    openModal(`<h2>☁️ Cloud-Speicher</h2><p>Diese Funktion ist auf dieser Seite noch nicht eingerichtet. Dein Fortschritt wird trotzdem ganz normal lokal in diesem Browser gespeichert.</p><div class="modal-actions"><button class="btn btn-primary" id="auth-ok">Verstanden</button></div>`);
+    $("auth-ok").onclick = closeModal;
+    return;
+  }
+  let tab = initialTab || "login";
+  function render() {
+    const isForgot = tab === "forgot", isRegister = tab === "register";
+    openModal(`
+      <h2>☁️ ${isForgot ? "Passwort zurücksetzen" : "Account"}</h2>
+      ${!isForgot ? `<div class="auth-tabs">
+        <button class="auth-tab-btn ${tab === "login" ? "active" : ""}" data-authtab="login">Anmelden</button>
+        <button class="auth-tab-btn ${tab === "register" ? "active" : ""}" data-authtab="register">Registrieren</button>
+      </div>` : ""}
+      <div class="auth-form">
+        <label>E-Mail<input type="email" id="auth-email" autocomplete="email"></label>
+        ${!isForgot ? `<label>Passwort<input type="password" id="auth-password" autocomplete="${isRegister ? "new-password" : "current-password"}"></label>` : ""}
+        <div class="auth-msg" id="auth-msg"></div>
+        <button class="btn btn-primary" id="auth-submit">${isForgot ? "Link senden" : isRegister ? "Registrieren" : "Anmelden"}</button>
+        ${!isForgot ? '<button class="auth-forgot" id="auth-forgot-btn">Passwort vergessen?</button>' : '<button class="auth-forgot" id="auth-back-btn">← Zurück</button>'}
+      </div>`);
+    if (!isForgot) {
+      $("modal-box").querySelectorAll("[data-authtab]").forEach((b) => (b.onclick = () => { tab = b.dataset.authtab; render(); }));
+      $("auth-forgot-btn").onclick = () => { tab = "forgot"; render(); };
+    } else {
+      $("auth-back-btn").onclick = () => { tab = "login"; render(); };
+    }
+    $("auth-submit").onclick = async () => {
+      const email = $("auth-email").value.trim();
+      const pw = !isForgot ? $("auth-password").value : "";
+      const msg = $("auth-msg");
+      msg.className = "auth-msg"; msg.textContent = "";
+      if (!email) { msg.className = "auth-msg error"; msg.textContent = "Bitte E-Mail-Adresse eingeben."; return; }
+      if (!isForgot && pw.length < 6) { msg.className = "auth-msg error"; msg.textContent = "Passwort muss mindestens 6 Zeichen haben."; return; }
+      $("auth-submit").disabled = true;
+      let res;
+      if (isForgot) res = await authResetPassword(email);
+      else if (isRegister) res = await authRegister(email, pw);
+      else res = await authLogin(email, pw);
+      if ($("auth-submit")) $("auth-submit").disabled = false;
+      if (res.error) { msg.className = "auth-msg error"; msg.textContent = res.error; return; }
+      if (isForgot) { msg.className = "auth-msg success"; msg.textContent = "E-Mail zum Zurücksetzen wurde gesendet."; return; }
+      if (isRegister) { msg.className = "auth-msg success"; msg.textContent = "Konto erstellt! Bestätigungsmail wurde gesendet."; setTimeout(closeModal, 1400); return; }
+      closeModal();
+    };
+  }
+  render();
 }
 
 // ============================================================
@@ -1874,6 +2106,7 @@ function initEventListeners() {
     }
   });
   $("btn-prestige").addEventListener("click", doPrestige);
+  $("btn-account").addEventListener("click", () => { cloudUser ? switchTab("settings") : openAuthModal("login"); });
 
   // Logo Picker
   const logos = ["🏢", "🚀", "🦅", "🐉", "💎", "🌐", "⚡", "🏆"];
@@ -1890,6 +2123,7 @@ function init() {
   loadGame();
   initEventListeners();
   applyTheme();
+  cloudInit();
   $("chk-sound").checked = S.soundOn;
   $("chk-autopilot").checked = S.autopilot;
   renderAll();
@@ -1900,6 +2134,7 @@ function init() {
   setInterval(secondTick, 1000);
   setInterval(payDividends, 30000);
   setInterval(saveGame, 10000);
+  setInterval(cloudSyncTick, 60000);
   setInterval(refreshTrending, 45000);
   newsLoop();
   flashCrashLoop();

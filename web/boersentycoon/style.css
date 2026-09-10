@@ -130,6 +130,52 @@ body {
 .btn-overclock.active { animation: overclock-pulse 0.4s infinite alternate; }
 @keyframes overclock-pulse { from { box-shadow: 0 0 8px var(--accent2); } to { box-shadow: 0 0 26px var(--accent2); } }
 
+.btn-account {
+  background: var(--card-hover); border: 1px solid var(--border); color: var(--text);
+  font-weight: 700; padding: 8px 14px; border-radius: 10px; cursor: pointer;
+  white-space: nowrap; font-size: 0.82rem; max-width: 160px; overflow: hidden;
+  text-overflow: ellipsis; transition: border-color 0.15s;
+}
+.btn-account:hover { border-color: var(--accent2); }
+.btn-account.synced { border-color: var(--green); }
+.btn-account.syncing { border-color: var(--gold); }
+.btn-account.offline-only { color: var(--text-dim); }
+
+/* ============ Account / Cloud-Speicher ============ */
+.account-box { background: var(--card); border: 1px solid var(--border); border-radius: var(--radius); padding: 14px; }
+.account-row { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; }
+.account-avatar {
+  width: 40px; height: 40px; border-radius: 50%; flex-shrink: 0;
+  background: linear-gradient(135deg, var(--accent), var(--accent2));
+  display: flex; align-items: center; justify-content: center;
+  font-weight: 800; color: #fff; font-family: var(--font-display);
+}
+.account-info { flex: 1; min-width: 160px; }
+.account-email { font-weight: 700; word-break: break-all; }
+.account-meta { font-size: 0.75rem; color: var(--text-dim); margin-top: 2px; }
+.account-meta.verified { color: var(--green); }
+.account-meta.unverified { color: var(--gold); }
+.account-actions { display: flex; gap: 8px; flex-wrap: wrap; margin-top: 10px; }
+.account-pitch { color: var(--text-dim); font-size: 0.85rem; line-height: 1.5; margin: 0 0 12px; }
+
+.auth-form { display: flex; flex-direction: column; gap: 10px; }
+.auth-tabs { display: flex; gap: 6px; margin-bottom: 4px; }
+.auth-tab-btn {
+  flex: 1; background: var(--bg); border: 1px solid var(--border); color: var(--text-dim);
+  padding: 7px; border-radius: 8px; cursor: pointer; font-size: 0.8rem; font-weight: 600;
+}
+.auth-tab-btn.active { background: var(--accent); color: #fff; border-color: var(--accent); }
+.auth-form input[type="email"], .auth-form input[type="password"] {
+  width: 100%; background: var(--bg); border: 1px solid var(--border); color: var(--text);
+  border-radius: 8px; padding: 10px; font-size: 0.9rem; font-family: var(--font);
+}
+.auth-form label { font-size: 0.8rem; color: var(--text-dim); display: block; }
+.auth-msg { font-size: 0.8rem; padding: 8px 10px; border-radius: 8px; display: none; }
+.auth-msg.error { display: block; background: rgba(255, 77, 109, 0.12); color: var(--red); border: 1px solid var(--red); }
+.auth-msg.success { display: block; background: rgba(46, 230, 166, 0.12); color: var(--green); border: 1px solid var(--green); }
+.auth-msg.info { display: block; background: rgba(0, 209, 255, 0.1); color: var(--accent2); border: 1px solid var(--accent2); }
+.auth-forgot { background: none; border: none; color: var(--accent2); font-size: 0.78rem; cursor: pointer; padding: 0; text-align: left; text-decoration: underline; }
+
 /* ============ SEC Bar ============ */
 .sec-bar-wrap {
   display: flex; align-items: center; gap: 10px;

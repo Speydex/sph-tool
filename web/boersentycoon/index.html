@@ -53,6 +53,7 @@
         <span class="hud-value" id="hud-rank">Groschen-Trader</span>
       </div>
       <button id="btn-overclock" class="btn-overclock" title="10 Sekunden 3x Tempo">⚡ Overclock</button>
+      <button id="btn-account" class="btn-account" title="Anmelden, um Fortschritt geräteübergreifend zu speichern">👤 Anmelden</button>
     </div>
   </header>
 
@@ -277,12 +278,14 @@
 
     <!-- ================= EINSTELLUNGEN ================= -->
     <section class="panel" id="panel-settings">
+      <h3>☁️ Account & Cloud-Speicher</h3>
+      <div class="account-box" id="account-box"></div>
       <h3>🎨 Theme</h3>
       <div class="theme-grid" id="theme-grid"></div>
       <h3>🔊 Sound</h3>
       <label><input type="checkbox" id="chk-sound" checked> Soundeffekte aktiviert</label>
       <h3>💾 Speicherstand</h3>
-      <button id="btn-reset" class="btn btn-danger">Spielstand zurücksetzen</button>
+      <button id="btn-reset" class="btn btn-danger">Spielstand zurücksetzen (nur lokal)</button>
     </section>
 
   </main>
@@ -298,6 +301,14 @@
   <div class="tutorial-box" id="tutorial-box"></div>
 </div>
 
+<!-- Firebase (Auth + Firestore) fuer den optionalen Cloud-Speicherstand.
+     Laedt nur die Compat-SDKs, kein Build-Schritt noetig. Solange
+     firebase-config.js noch Platzhalter enthaelt, bleibt das Spiel im
+     reinen Lokal-Modus (siehe FIREBASE_CONFIGURED in app.js). -->
+<script src="https://www.gstatic.com/firebasejs/10.13.0/firebase-app-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/10.13.0/firebase-auth-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/10.13.0/firebase-firestore-compat.js"></script>
+<script src="firebase-config.js"></script>
 <script src="data.js"></script>
 <script src="app.js"></script>
 </body>
