@@ -322,13 +322,49 @@ function playSound(freq = 440, dur = 0.12, type = "sine", vol = 0.08) {
   } catch (e) {}
 }
 const SND = {
+  // Trading
   buy: () => playSound(520, 0.1, "triangle"),
   sell: () => playSound(340, 0.1, "triangle"),
   gain: () => playSound(700, 0.15, "sine"),
   loss: () => playSound(180, 0.2, "sawtooth"),
+  dividend: () => playSound(950, 0.05, "sine", 0.035),
+  crash: () => { playSound(220, 0.2, "sawtooth", 0.09); setTimeout(() => playSound(140, 0.28, "sawtooth", 0.09), 110); },
+  // UI
   click: () => playSound(880, 0.05, "square", 0.04),
+  tab: () => playSound(520, 0.05, "sine", 0.035),
+  toggle: () => playSound(680, 0.06, "triangle", 0.05),
+  modalOpen: () => playSound(440, 0.07, "sine", 0.05),
+  modalClose: () => playSound(320, 0.06, "sine", 0.04),
+  purchase: () => { playSound(500, 0.06, "triangle", 0.06); setTimeout(() => playSound(720, 0.09, "triangle", 0.06), 60); },
+  denied: () => playSound(150, 0.15, "sawtooth", 0.07),
+  notification: () => { playSound(700, 0.05, "sine", 0.04); setTimeout(() => playSound(880, 0.07, "sine", 0.04), 70); },
+  // Generisches Feedback
   alert: () => playSound(240, 0.25, "square", 0.1),
   success: () => { playSound(660, 0.08); setTimeout(() => playSound(880, 0.12), 90); },
+  // Social
+  post: () => { playSound(600, 0.05, "sine", 0.05); setTimeout(() => playSound(760, 0.08, "sine", 0.05), 70); },
+  viral: () => [520, 660, 880, 1040].forEach((f, i) => setTimeout(() => playSound(f, 0.1, "triangle", 0.06), i * 70)),
+  followerLoss: () => playSound(200, 0.18, "sawtooth", 0.06),
+  // Mining
+  wire: () => playSound(900, 0.06, "sine", 0.04),
+  overheat: () => playSound(180, 0.3, "sawtooth", 0.08),
+  fuseTrip: () => { playSound(120, 0.3, "sawtooth", 0.09); setTimeout(() => playSound(90, 0.35, "sawtooth", 0.09), 150); },
+  fuseFixed: () => playSound(700, 0.12, "sine", 0.06),
+  coin: () => playSound(1200, 0.04, "square", 0.03),
+  // SEC / Recht
+  secWarn: () => playSound(260, 0.2, "square", 0.07),
+  raid: () => [200, 160, 200, 160].forEach((f, i) => setTimeout(() => playSound(f, 0.15, "sawtooth", 0.09), i * 140)),
+  // Meilensteine
+  levelUp: () => [440, 554, 659, 880].forEach((f, i) => setTimeout(() => playSound(f, 0.15, "triangle", 0.07), i * 90)),
+  ath: () => { playSound(880, 0.1, "sine", 0.07); setTimeout(() => playSound(1100, 0.15, "sine", 0.07), 90); },
+  jackpot: () => [660, 880, 1100, 1320].forEach((f, i) => setTimeout(() => playSound(f, 0.18, "triangle", 0.08), i * 80)),
+  prestige: () => [440, 554, 659, 880, 1108].forEach((f, i) => setTimeout(() => playSound(f, 0.2, "triangle", 0.07), i * 110)),
+  // Casino
+  cardFlip: () => playSound(500, 0.04, "square", 0.035),
+  dice: () => playSound(rand(300, 500), 0.04, "square", 0.035),
+  // Opt-out fuer Stellen, die schon einen eigenen Sound gespielt haben und
+  // den automatischen pushNotify-Ton nicht zusaetzlich wollen.
+  silent: () => {},
 };
 
 function spawnFloat(x, y, text, cls) {
@@ -390,14 +426,17 @@ function confettiLoop() {
   else confettiRunning = false;
 }
 
-// Push notifications (Eilmeldungen)
-function pushNotify(title, text, cls) {
+// Push notifications (Eilmeldungen). `tone` waehlt den Sound — die meisten
+// Aufrufe lassen ihn weg und bekommen automatisch den dezenten Standard-Ton;
+// nur wirklich markante Momente (Level-Up, Razzia, Crash, ...) geben einen
+// eigenen, auffälligeren Ton mit.
+function pushNotify(title, text, tone) {
   const stack = $("push-stack");
   const el = document.createElement("div");
   el.className = "push-item";
   el.innerHTML = `<div class="pt">${title}</div><div>${text}</div>`;
   stack.appendChild(el);
-  SND.alert();
+  (SND[tone] || SND.notification)();
   setTimeout(() => { el.classList.add("fading"); setTimeout(() => el.remove(), 400); }, 5200);
 }
 
@@ -490,8 +529,7 @@ function priceTick() {
 }
 
 function onAllTimeHigh(cfg) {
-  pushNotify("🏆 ALL-TIME-HIGH", `${cfg.name} erreicht ein neues Rekordhoch!`);
-  SND.success();
+  pushNotify("🏆 ALL-TIME-HIGH", `${cfg.name} erreicht ein neues Rekordhoch!`, "ath");
 }
 
 let activeCrisis = null;
@@ -562,7 +600,7 @@ function triggerFlashCrash() {
     st.crashUntil = until;
   });
   addNewsTicker("📉 BÖRSENCRASH! Alle Kurse brechen ein — Kaufgelegenheit!", "crash");
-  pushNotify("💥 FLASH CRASH", "Der Markt stürzt ab! Perfekte Kaufgelegenheit für 20-30 Sekunden.");
+  pushNotify("💥 FLASH CRASH", "Der Markt stürzt ab! Perfekte Kaufgelegenheit für 20-30 Sekunden.", "crash");
   screenShake();
   renderStockGrid();
 }
@@ -585,7 +623,7 @@ function buyStock(id, qty, el) {
   qty = Math.max(1, Math.floor(qty || 1));
   const st = S.stocks[id];
   const cost = st.price * qty * (1 + feeRate());
-  if (cost > S.cash) { pushNotify("⚠️ Nicht genug Geld", "Du hast nicht genug Kapital für diesen Kauf."); return; }
+  if (cost > S.cash) { pushNotify("⚠️ Nicht genug Geld", "Du hast nicht genug Kapital für diesen Kauf.", "denied"); return; }
   S.cash -= cost;
   const p = (S.portfolio[id] = S.portfolio[id] || { shares: 0, avgPrice: 0, short: 0, shortAvg: 0 });
   p.avgPrice = (p.avgPrice * p.shares + st.price * qty) / (p.shares + qty);
@@ -653,7 +691,9 @@ function payDividends() {
   }
   if (total > 0.01) {
     S.cash += total;
-    pushNotify("💵 Dividende erhalten", `+${fmtMoney(total)} aus deinem Aktienbesitz.`);
+    floatAtEl($("hud-cash"), "+" + fmtMoney(total), "pos");
+    SND.dividend();
+    pushNotify("💵 Dividende erhalten", `+${fmtMoney(total)} aus deinem Aktienbesitz.`, "silent");
   }
 }
 
@@ -686,7 +726,7 @@ function startRaid() {
     return;
   }
   screenShake();
-  SND.alert();
+  SND.raid();
   let progress = 0;
   const zoneStart = rand(30, 60);
   const html = `
@@ -774,7 +814,7 @@ function postMessage(text, stockId, dir) {
   S.followers = Math.max(10, S.followers + randInt(1, 5) * PRESTIGE.followerMult);
   S.viralBoost = 0;
   renderAll();
-  SND.click();
+  SND.post();
 
   // Zufällige schnelle Reaktion eines KI-Users
   setTimeout(() => {
@@ -797,13 +837,13 @@ function checkPredictions() {
       S.followers = Math.round(S.followers * (1 + gain));
       S.trust = clamp(S.trust + 5, 0, 100);
       addFeedItem(choice(["🚀 CryptoFan88", "📈 InvestorIna", "🔥 HypeHans"]), `${choice(HYPE_COMMENTS)} (${cfg.name} ${pct(changed)})`, "hype");
-      pushNotify("📈 Vorhersage traf ein!", `+${Math.round(gain * 100)}% Follower — ${cfg.name} bewegte sich wie vorhergesagt!`);
-      SND.success();
+      pushNotify("📈 Vorhersage traf ein!", `+${Math.round(gain * 100)}% Follower — ${cfg.name} bewegte sich wie vorhergesagt!`, "success");
     } else if (wrong) {
       const loss = 0.07 * (1 - PRESTIGE.followerMult * 0.05);
       S.followers = Math.max(10, Math.round(S.followers * (1 - loss)));
       S.trust = clamp(S.trust - 6, 0, 100);
       addFeedItem(choice(["😂 SkepticSven", "🤡 ShortSeller", "📉 BearBerta"]), `${choice(MOCK_COMMENTS)} (${cfg.name} ${pct(changed)})`, "mock");
+      pushNotify("📉 Vorhersage lag daneben", `${cfg.name} lief entgegengesetzt — Follower-Verlust.`, "followerLoss");
       if (Math.random() < 0.25) startShitstorm();
     }
     renderAll();
@@ -818,7 +858,7 @@ function startShitstorm() {
 }
 function apologyCampaign() {
   const cost = 15000;
-  if (S.cash < cost) { pushNotify("⚠️ Nicht genug Geld", "Entschuldigungs-Kampagne kostet " + fmtMoney(cost)); return; }
+  if (S.cash < cost) { pushNotify("⚠️ Nicht genug Geld", "Entschuldigungs-Kampagne kostet " + fmtMoney(cost), "denied"); return; }
   S.cash -= cost;
   S.shitstormUntil = 0;
   S.trust = clamp(S.trust + 10, 0, 100);
@@ -828,7 +868,7 @@ function apologyCampaign() {
 
 function fakeNewsCampaign() {
   const cost = 25000;
-  if (S.cash < cost) { pushNotify("⚠️ Nicht genug Geld", "Fake-News-Kampagne kostet " + fmtMoney(cost)); return; }
+  if (S.cash < cost) { pushNotify("⚠️ Nicht genug Geld", "Fake-News-Kampagne kostet " + fmtMoney(cost), "denied"); return; }
   S.cash -= cost;
   addSecHeat(15);
   const target = choice(STOCKS);
@@ -866,11 +906,11 @@ function refreshTrending() {
 function checkSponsor() {
   if (!S.sponsorActive && S.followers >= 10000) {
     S.sponsorActive = true; S.sponsorSince = now();
-    pushNotify("💼 Sponsoring erhalten!", "Ein Unternehmen zahlt dir jetzt laufende Werbe-Einnahmen.");
+    pushNotify("💼 Sponsoring erhalten!", "Ein Unternehmen zahlt dir jetzt laufende Werbe-Einnahmen.", "levelUp");
   }
   if (!S.verified && S.followers >= 100000) {
     S.verified = true;
-    pushNotify("✔️ Verifiziert!", "Du hast den blauen Haken erhalten — doppelte Post-Wirkung!");
+    pushNotify("✔️ Verifiziert!", "Du hast den blauen Haken erhalten — doppelte Post-Wirkung!", "jackpot");
     spawnConfetti(100);
   }
 }
@@ -912,8 +952,8 @@ function wireRig(rigId) {
   const t = (now() % 1000) / 1000;
   const pos = Math.sin(t * Math.PI * 2) * 0.5 + 0.5;
   rig.wired = true;
-  if (pos > 0.4 && pos < 0.6) { rig.boostUntil = now() + 60000; pushNotify("🔌 Perfekt verkabelt!", "+50% Ertrag für 60 Sekunden."); SND.success(); }
-  else SND.click();
+  SND.wire();
+  if (pos > 0.4 && pos < 0.6) { rig.boostUntil = now() + 60000; pushNotify("🔌 Perfekt verkabelt!", "+50% Ertrag für 60 Sekunden.", "success"); }
   renderMining();
 }
 function coolRig(rigId) {
@@ -957,7 +997,8 @@ function miningTick() {
     const cap = powerCapacity();
     if (usage > cap && Math.random() < 0.05) {
       S.fuseTripped = true;
-      pushNotify("⚡ SICHERUNG RAUS!", "Das Stromnetz ist überlastet. Mining pausiert.");
+      SND.fuseTrip();
+      pushNotify("⚡ SICHERUNG RAUS!", "Das Stromnetz ist überlastet. Mining pausiert.", "silent");
     }
   }
 
@@ -973,7 +1014,7 @@ function miningTick() {
     // Temperatur
     if (!autoCool) {
       r.temp += rand(0.5, 1.5) * speed;
-      if (r.temp >= 100 && Math.random() > noOverheatChance) { r.overheated = true; r.temp = 100; return; }
+      if (r.temp >= 100 && Math.random() > noOverheatChance) { r.overheated = true; r.temp = 100; SND.overheat(); return; }
       else if (r.temp >= 100) r.temp = 60;
     } else {
       r.temp = Math.max(15, r.temp - 5);
@@ -1002,7 +1043,8 @@ function sellCoins(silent) {
 }
 function fixFuse() {
   S.fuseTripped = false;
-  pushNotify("🔌 Wieder am Netz", "Die Sicherung wurde erfolgreich zurückgesetzt.");
+  SND.fuseFixed();
+  pushNotify("🔌 Wieder am Netz", "Die Sicherung wurde erfolgreich zurückgesetzt.", "silent");
   renderMining();
 }
 
@@ -1020,51 +1062,56 @@ function buyUpgrade(catKey, id) {
   if (!u) return;
   const lvl = S.upgrades[id] || 0;
   if (lvl >= u.max) return;
-  if (u.requiresLevel && level() < u.requiresLevel) { pushNotify("🔒 Gesperrt", `Erfordert Level ${u.requiresLevel}.`); return; }
-  if (u.requiresFollowers && S.followers < u.requiresFollowers) { pushNotify("🔒 Gesperrt", `Erfordert ${fmtNum(u.requiresFollowers)} Follower.`); return; }
+  if (u.requiresLevel && level() < u.requiresLevel) { pushNotify("🔒 Gesperrt", `Erfordert Level ${u.requiresLevel}.`, "denied"); return; }
+  if (u.requiresFollowers && S.followers < u.requiresFollowers) { pushNotify("🔒 Gesperrt", `Erfordert ${fmtNum(u.requiresFollowers)} Follower.`, "denied"); return; }
   const cost = upgradeCost(u);
-  if (S.cash < cost) { pushNotify("⚠️ Nicht genug Geld", fmtMoney(cost) + " nötig."); return; }
+  if (S.cash < cost) { pushNotify("⚠️ Nicht genug Geld", fmtMoney(cost) + " nötig.", "denied"); return; }
   S.cash -= cost;
   S.upgrades[id] = lvl + 1;
-  pushNotify("✅ Upgrade gekauft", u.name);
+  SND.purchase();
+  pushNotify("✅ Upgrade gekauft", u.name, "silent");
   renderAll();
 }
 function buySkill(id) {
   const sk = SKILL_TREE.find((s) => s.id === id);
   if (!sk || hasSkill(id)) return;
-  if (S.skillPoints < sk.cost) { pushNotify("⚠️ Zu wenig Talentpunkte", `Benötigt: ${sk.cost}`); return; }
+  if (S.skillPoints < sk.cost) { pushNotify("⚠️ Zu wenig Talentpunkte", `Benötigt: ${sk.cost}`, "denied"); return; }
   S.skillPoints -= sk.cost;
   S.skills[id] = true;
-  pushNotify("🌳 Talent freigeschaltet", sk.name);
+  SND.purchase();
+  pushNotify("🌳 Talent freigeschaltet", sk.name, "silent");
   renderAll();
 }
 function hireEmployee(id) {
   const e = EMPLOYEES.find((x) => x.id === id);
   if (!e || hasEmp(id)) return;
-  if (S.cash < e.cost) { pushNotify("⚠️ Nicht genug Geld", fmtMoney(e.cost) + " nötig."); return; }
+  if (S.cash < e.cost) { pushNotify("⚠️ Nicht genug Geld", fmtMoney(e.cost) + " nötig.", "denied"); return; }
   S.cash -= e.cost;
   S.employees[id] = true;
-  pushNotify("👥 Eingestellt", e.name);
+  SND.purchase();
+  pushNotify("👥 Eingestellt", e.name, "silent");
   renderAll();
 }
 function buyEstate(id) {
   const idx = ESTATES.findIndex((e) => e.id === id);
   if (idx !== S.estateIndex + 1) return;
   const e = ESTATES[idx];
-  if (S.cash < e.cost) { pushNotify("⚠️ Nicht genug Geld", fmtMoney(e.cost) + " nötig."); return; }
+  if (S.cash < e.cost) { pushNotify("⚠️ Nicht genug Geld", fmtMoney(e.cost) + " nötig.", "denied"); return; }
   S.cash -= e.cost;
   S.estateIndex = idx;
-  pushNotify("🏠 Neue Immobilie!", e.name);
+  SND.levelUp();
+  pushNotify("🏠 Neue Immobilie!", e.name, "silent");
   spawnConfetti(80);
   renderAll();
 }
 function buyLuxury(id) {
   const l = LUXURY_ITEMS.find((x) => x.id === id);
   if (!l || hasLux(id)) return;
-  if (S.cash < l.cost) { pushNotify("⚠️ Nicht genug Geld", fmtMoney(l.cost) + " nötig."); return; }
+  if (S.cash < l.cost) { pushNotify("⚠️ Nicht genug Geld", fmtMoney(l.cost) + " nötig.", "denied"); return; }
   S.cash -= l.cost;
   S.luxury[id] = true;
-  pushNotify("💎 Luxusgut erworben", l.name);
+  SND.purchase();
+  pushNotify("💎 Luxusgut erworben", l.name, "silent");
   spawnConfetti(60);
   renderAll();
 }
@@ -1260,8 +1307,8 @@ function buybackShares() {
 // ============================================================
 // MINI-GAMES
 // ============================================================
-function openModal(html) { $("modal-box").innerHTML = html; $("modal-overlay").hidden = false; }
-function closeModal() { $("modal-overlay").hidden = true; $("modal-box").innerHTML = ""; }
+function openModal(html) { $("modal-box").innerHTML = html; $("modal-overlay").hidden = false; SND.modalOpen(); }
+function closeModal() { $("modal-overlay").hidden = true; $("modal-box").innerHTML = ""; SND.modalClose(); }
 $("modal-overlay") && ($("modal-overlay").onclick = (e) => { if (e.target.id === "modal-overlay") closeModal(); });
 
 const MG_COOLDOWN_MS = 20000;
@@ -1516,8 +1563,8 @@ function resolveBet(stake, multiplier, el) {
 }
 function checkCasinoStake(id) {
   const stake = Math.floor(parseFloat($(id) ? $(id).value : 0) || 0);
-  if (stake < MG_MIN_STAKE) { pushNotify("⚠️ Einsatz zu niedrig", `Mindesteinsatz: ${fmtMoney(MG_MIN_STAKE)}`); return null; }
-  if (stake > S.cash) { pushNotify("⚠️ Nicht genug Geld", "Dein Einsatz übersteigt deine Kasse."); return null; }
+  if (stake < MG_MIN_STAKE) { pushNotify("⚠️ Einsatz zu niedrig", `Mindesteinsatz: ${fmtMoney(MG_MIN_STAKE)}`, "denied"); return null; }
+  if (stake > S.cash) { pushNotify("⚠️ Nicht genug Geld", "Dein Einsatz übersteigt deine Kasse.", "denied"); return null; }
   return stake;
 }
 
@@ -1629,11 +1676,16 @@ function dealBlackjack() {
   const stake = checkCasinoStake("bj-stake");
   if (stake === null) return;
   bjState = { stake, player: [drawCard(), drawCard()], dealer: [drawCard(), drawCard()], done: false };
+  SND.cardFlip();
+  setTimeout(SND.cardFlip, 90);
+  setTimeout(SND.cardFlip, 180);
+  setTimeout(SND.cardFlip, 270);
   renderBlackjack();
 }
 function bjHit() {
   if (!bjState || bjState.done) return;
   bjState.player.push(drawCard());
+  SND.cardFlip();
   if (handValue(bjState.player) > 21) finishBlackjack();
   else renderBlackjack();
 }
@@ -1715,6 +1767,7 @@ function spinSlots() {
     else if (result[1].s === result[2].s) { mult = result[1].pay2; label = "✨ Zwei Treffer!"; winners = [1, 2]; }
     else if (result[0].s === result[2].s) { mult = result[0].pay2; label = "✨ Zwei Treffer!"; winners = [0, 2]; }
     winners.forEach((i) => reelEls[i].classList.add("win"));
+    if (winners.length === 3) { SND.jackpot(); spawnConfetti(80); }
     const net = resolveBet(stake, mult, $("slots-spin"));
     const resEl = $("slots-result");
     resEl.textContent = `${label} ${net >= 0 ? "+" : ""}${fmtMoney(net)}`;
@@ -1736,6 +1789,7 @@ function rollDice() {
   const iv = setInterval(() => {
     d1El.textContent = DICE_FACES[randInt(0, 5)];
     d2El.textContent = DICE_FACES[randInt(0, 5)];
+    if (ticks % 3 === 0) SND.dice();
     ticks++;
     if (ticks > 12) {
       clearInterval(iv);
@@ -1752,7 +1806,7 @@ function rollDice() {
       const resEl = $("dice-result");
       resEl.textContent = `Summe: ${sum} — ${net >= 0 ? "+" : ""}${fmtMoney(net)}`;
       resEl.className = "slots-result " + (net >= 0 ? "pos" : "neg");
-      SND.click();
+      win ? SND.success() : SND.dice();
       $("dice-roll").disabled = false;
     }
   }, 80);
@@ -1921,14 +1975,14 @@ function autopilotTick() {
 // ============================================================
 function canPrestige() { return netWorth() >= 50000000; }
 function doPrestige() {
-  if (!canPrestige()) { pushNotify("🔒 Noch nicht bereit", "Erreiche 50 Mio. € Vermögen für den Ruhestand."); return; }
+  if (!canPrestige()) { pushNotify("🔒 Noch nicht bereit", "Erreiche 50 Mio. € Vermögen für den Ruhestand.", "denied"); return; }
   PRESTIGE.count++;
   PRESTIGE.followerMult = 1 + PRESTIGE.count * 0.2;
   PRESTIGE.costReduction = Math.min(0.5, PRESTIGE.count * 0.1);
   savePrestige();
   S = freshState();
   saveGame();
-  pushNotify("♻️ Ruhestand!", `Neustart mit +${Math.round((PRESTIGE.followerMult - 1) * 100)}% Followern & -${Math.round(PRESTIGE.costReduction * 100)}% Kosten dauerhaft!`);
+  pushNotify("♻️ Ruhestand!", `Neustart mit +${Math.round((PRESTIGE.followerMult - 1) * 100)}% Followern & -${Math.round(PRESTIGE.costReduction * 100)}% Kosten dauerhaft!`, "prestige");
   spawnConfetti(150);
   renderAll();
 }
@@ -2276,10 +2330,11 @@ function renderThemes() {
   $("theme-grid").querySelectorAll("[data-theme-pick]").forEach((el) => (el.onclick = () => {
     const id = el.dataset.themePick;
     const t = THEMES.find((x) => x.id === id);
-    if (netWorth() < t.requiresNetWorth) return;
+    if (netWorth() < t.requiresNetWorth) { SND.denied(); return; }
     S.theme = id;
     applyTheme();
     renderThemes();
+    SND.toggle();
   }));
 }
 function applyTheme() {
@@ -2391,6 +2446,7 @@ function openAuthModal(initialTab) {
 function switchTab(tab) {
   document.querySelectorAll(".tab-btn").forEach((b) => b.classList.toggle("active", b.dataset.tab === tab));
   document.querySelectorAll(".panel").forEach((p) => p.classList.toggle("active", p.id === "panel-" + tab));
+  SND.tab();
 }
 
 // ============================================================
@@ -2462,7 +2518,8 @@ function secondTick() {
   if (!S._lastLevel) S._lastLevel = 1;
   if (lvl > S._lastLevel) {
     S.skillPoints += lvl - S._lastLevel;
-    pushNotify("⭐ Level Up!", `Level ${lvl} erreicht! +${lvl - S._lastLevel} Talentpunkt(e)`);
+    pushNotify("⭐ Level Up!", `Level ${lvl} erreicht! +${lvl - S._lastLevel} Talentpunkt(e)`, "levelUp");
+    spawnConfetti(50);
     grantCardChance();
     S._lastLevel = lvl;
   }
@@ -2472,13 +2529,13 @@ function initEventListeners() {
   document.querySelectorAll(".tab-btn").forEach((b) => b.addEventListener("click", () => switchTab(b.dataset.tab)));
   document.querySelectorAll(".uptab-btn").forEach((b) => b.addEventListener("click", () => {
     document.querySelectorAll(".uptab-btn").forEach((x) => x.classList.remove("active"));
-    b.classList.add("active"); currentUpgradeTab = b.dataset.uptab; renderUpgrades();
+    b.classList.add("active"); currentUpgradeTab = b.dataset.uptab; renderUpgrades(); SND.click();
   }));
-  document.querySelectorAll(".inboxtab-btn").forEach((b) => b.addEventListener("click", () => switchInboxTab(b.dataset.inboxtab)));
+  document.querySelectorAll(".inboxtab-btn").forEach((b) => b.addEventListener("click", () => { switchInboxTab(b.dataset.inboxtab); SND.click(); }));
 
   $("btn-analyse").addEventListener("click", marketAnalyse);
   $("btn-overclock").addEventListener("click", overclock);
-  $("chk-autopilot").addEventListener("change", (e) => { S.autopilot = e.target.checked; });
+  $("chk-autopilot").addEventListener("change", (e) => { SND.toggle(); S.autopilot = e.target.checked; });
   $("chk-autopilot").checked = true;
 
   $("btn-post").addEventListener("click", () => {
@@ -2505,7 +2562,9 @@ function initEventListeners() {
 
   document.querySelectorAll("[data-mg]").forEach((b) => b.addEventListener("click", () => startMinigame(b.dataset.mg)));
 
-  $("chk-sound").addEventListener("change", (e) => { S.soundOn = e.target.checked; });
+  $("chk-sound").addEventListener("change", (e) => {
+    if (e.target.checked) { S.soundOn = true; SND.toggle(); } else { SND.toggle(); S.soundOn = false; }
+  });
   $("btn-reset").addEventListener("click", () => {
     if (confirm("Wirklich den kompletten Spielstand löschen?")) {
       localStorage.removeItem(SAVE_KEY);
