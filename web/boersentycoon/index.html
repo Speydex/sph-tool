@@ -3,6 +3,12 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
+<!-- Verhindert, dass Browser (v.a. mobile Safari) diese Seite selbst
+     hart cachen und bei einem Update die alte HTML-Struktur zeigen,
+     obwohl app.js/style.css schon per Cache-Busting aktualisiert sind. -->
+<meta http-equiv="Cache-Control" content="no-cache, no-store, must-revalidate">
+<meta http-equiv="Pragma" content="no-cache">
+<meta http-equiv="Expires" content="0">
 <title>BörsenTycoon</title>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
