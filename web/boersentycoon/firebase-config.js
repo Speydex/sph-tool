@@ -21,12 +21,12 @@
 // bleibt inaktiv, Speicherstand nur im Browser via localStorage) — nichts
 // bricht, bis hier echte Werte eingetragen sind.
 const FIREBASE_CONFIG = {
-  apiKey: "DEIN_API_KEY",
-  authDomain: "DEIN_PROJEKT.firebaseapp.com",
-  projectId: "DEIN_PROJEKT",
-  storageBucket: "DEIN_PROJEKT.appspot.com",
-  messagingSenderId: "DEINE_SENDER_ID",
-  appId: "DEINE_APP_ID",
+  apiKey: "AIzaSyCsYHAFoW-4ILirXrJIUnz5CPm45HJS024",
+  authDomain: "crypto-trading-ccd35.firebaseapp.com",
+  projectId: "crypto-trading-ccd35",
+  storageBucket: "crypto-trading-ccd35.firebasestorage.app",
+  messagingSenderId: "400064198551",
+  appId: "1:400064198551:web:1084c436c12fe01f25b6d2",
 };
 
 const FIREBASE_CONFIGURED = FIREBASE_CONFIG.apiKey !== "DEIN_API_KEY" && !!FIREBASE_CONFIG.apiKey;
