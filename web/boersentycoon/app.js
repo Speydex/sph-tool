@@ -67,6 +67,8 @@ function freshState() {
       playerPct: 100, marketCap: 0, dividendRate: 2, hqUnlocked: false, hostileSince: 0 },
     stats: { athNetWorth: STARTING_CASH, biggestWin: 0, biggestLoss: 0, totalTrades: 0, startedAt: now() },
     strategyCards: { owned: {}, cooldowns: {} },
+    mgCooldowns: {},
+    rouletteHistory: [],
     autopilot: true,
     overclockUntil: 0, overclockCdUntil: 0,
     theme: "default", soundOn: true,
@@ -1195,20 +1197,54 @@ function openModal(html) { $("modal-box").innerHTML = html; $("modal-overlay").h
 function closeModal() { $("modal-overlay").hidden = true; $("modal-box").innerHTML = ""; }
 $("modal-overlay") && ($("modal-overlay").onclick = (e) => { if (e.target.id === "modal-overlay") closeModal(); });
 
+const MG_COOLDOWN_MS = 20000;
+const MG_MIN_STAKE = 10;
+
 function startMinigame(kind) {
-  if (kind === "chartcrash") return mgChartCrash();
-  if (kind === "hacker") return mgHacker();
-  if (kind === "interview") return mgInterview();
-  if (kind === "battle") return mgBattle();
+  if ((S.mgCooldowns[kind] || 0) > now()) { pushNotify("⏳ Noch nicht bereit", "Dieses Mini-Game braucht noch eine kurze Pause."); return; }
+  const input = $("stake-" + kind);
+  const stake = Math.floor(parseFloat(input ? input.value : 0) || 0);
+  if (stake < MG_MIN_STAKE) { pushNotify("⚠️ Einsatz zu niedrig", `Mindesteinsatz: ${fmtMoney(MG_MIN_STAKE)}`); return; }
+  if (stake > S.cash) { pushNotify("⚠️ Nicht genug Geld", "Dein Einsatz übersteigt deine Kasse."); return; }
+  if (kind === "chartcrash") return mgChartCrash(stake);
+  if (kind === "hacker") return mgHacker(stake);
+  if (kind === "interview") return mgInterview(stake);
+  if (kind === "battle") return mgBattle(false, stake);
 }
 
-function mgChartCrash() {
+// Zieht/erhaelt den Einsatz je nach Multiplikator (0 = Totalverlust, 1 = break-even,
+// >1 = Gewinn), floatet den NETTO-Gewinn/-Verlust und setzt die Abklingzeit.
+function resolveStake(kind, stake, multiplier, el) {
+  const payout = stake * multiplier;
+  const net = payout - stake;
+  S.cash += net;
+  if (net > S.stats.biggestWin) S.stats.biggestWin = net;
+  if (net < S.stats.biggestLoss) S.stats.biggestLoss = net;
+  floatMoney(el, net);
+  net >= 0 ? SND.gain() : SND.loss();
+  if (net > 0 && net > netWorth() * 0.03) spawnConfetti(50);
+  S.mgCooldowns[kind] = now() + MG_COOLDOWN_MS;
+  renderAll();
+  return net;
+}
+
+function renderMinigameCooldowns() {
+  ["chartcrash", "hacker", "interview", "battle"].forEach((kind) => {
+    const remain = Math.max(0, (S.mgCooldowns[kind] || 0) - now());
+    const cd = $("cd-" + kind);
+    const btn = document.querySelector(`[data-mg="${kind}"]`);
+    if (cd) cd.textContent = remain > 0 ? `⏳ ${Math.ceil(remain / 1000)}s` : "";
+    if (btn) btn.disabled = remain > 0;
+  });
+}
+
+function mgChartCrash(stake) {
   const startPrice = 100;
   let points = [startPrice];
   const crashAt = rand(4000, 9000);
   const startT = now();
   let sold = false;
-  const html = `<h2>📉 Chart-Crash</h2><p>Klicke SELL bevor der Kurs abstürzt!</p>
+  const html = `<h2>📉 Chart-Crash</h2><p>Einsatz: <strong style="color:var(--gold)">${fmtMoney(stake)}</strong> — klicke SELL bevor der Kurs abstürzt!</p>
     <canvas id="cc-canvas" width="400" height="180" style="width:100%;background:var(--bg);border-radius:8px;border:1px solid var(--border)"></canvas>
     <div class="modal-actions"><button class="btn btn-danger" id="cc-sell" style="width:100%;font-size:1.1rem;padding:14px">💰 SELL!</button></div>`;
   openModal(html);
@@ -1243,19 +1279,27 @@ function mgChartCrash() {
     sold = true; cancelAnimationFrame(raf);
     const cur = points[points.length - 1];
     const ratio = cur / peak;
-    const reward = crashed ? netWorth() * 0.002 * ratio : netWorth() * 0.01 * ratio;
-    S.cash += Math.max(200, reward);
-    pushNotify(crashed ? "😅 Knapp entkommen" : "🏆 Perfekter Ausstieg!", `+${fmtMoney(Math.max(200, reward))}`);
-    SND.success();
+    // Nicht abgestuerzt: 0.5x (schlechtes Timing) bis 3x (nah am Peak verkauft).
+    // Abgestuerzt bevor verkauft: fast immer ein Verlust (max. 25% zurueck).
+    const multiplier = crashed ? clamp(ratio * 0.3, 0, 0.25) : clamp(0.5 + ratio * 2.5, 0.5, 3);
+    const net = resolveStake("chartcrash", stake, multiplier, $("cc-sell"));
+    const title = crashed ? (net >= 0 ? "😅 Knapp Gewinn gemacht!" : "💥 Crash erwischt!") : (net >= 0 ? "🏆 Guter Ausstieg!" : "😬 Zu früh verkauft");
+    pushNotify(title, `${net >= 0 ? "+" : ""}${fmtMoney(net)}`);
     closeModal();
-    renderAll();
   };
-  setTimeout(() => { if (!sold) { sold = true; cancelAnimationFrame(raf); pushNotify("💥 Zu spät!", "Der Chart ist abgestürzt, bevor du verkauft hast."); closeModal(); } }, 11000);
+  setTimeout(() => {
+    if (!sold) {
+      sold = true; cancelAnimationFrame(raf);
+      const net = resolveStake("chartcrash", stake, 0, $("cc-sell"));
+      pushNotify("💥 Zu spät!", `Einsatz verloren: ${fmtMoney(-net)}`);
+      closeModal();
+    }
+  }, 11000);
 }
 
-function mgHacker() {
+function mgHacker(stake) {
   const code = String(randInt(1000, 9999));
-  const html = `<h2>🛡️ Hacker-Abwehr</h2><p>Merke dir den Code!</p>
+  const html = `<h2>🛡️ Hacker-Abwehr</h2><p>Einsatz: <strong style="color:var(--gold)">${fmtMoney(stake)}</strong> — merke dir den Code!</p>
     <div style="font-size:2.4rem;text-align:center;letter-spacing:0.3em;font-weight:800;color:var(--gold)" id="hk-code">${code}</div>`;
   openModal(html);
   setTimeout(() => {
@@ -1263,17 +1307,20 @@ function mgHacker() {
       <input type="text" id="hk-input" maxlength="4" style="width:100%;font-size:1.5rem;text-align:center;padding:10px;background:var(--bg);border:1px solid var(--border);border-radius:8px;color:var(--text)">
       <div class="modal-actions"><button class="btn btn-primary" id="hk-submit">Bestätigen</button></div>`;
     $("hk-input").focus();
-    const deadline = now() + 6000;
+    let done = false;
     const check = () => {
       const val = $("hk-input").value;
       if (val.length === 4) submit();
     };
     function submit() {
+      if (done) return;
+      done = true;
       const val = $("hk-input") ? $("hk-input").value : "";
       const ok = val === code;
-      if (ok) { pushNotify("🛡️ Erfolgreich abgewehrt!", "Dein Depot ist sicher."); SND.success(); }
-      else { const loss = S.cash * 0.08; S.cash -= loss; pushNotify("💀 Gehackt!", `Verloren: ${fmtMoney(loss)}`); SND.loss(); }
-      closeModal(); renderAll();
+      const net = resolveStake("hacker", stake, ok ? 2.2 : 0, $("hk-submit"));
+      if (ok) pushNotify("🛡️ Erfolgreich abgewehrt!", `+${fmtMoney(net)}`);
+      else pushNotify("💀 Gehackt!", `Verloren: ${fmtMoney(-net)}`);
+      closeModal();
     }
     $("hk-input").oninput = check;
     $("hk-submit").onclick = submit;
@@ -1281,20 +1328,21 @@ function mgHacker() {
   }, 1500);
 }
 
-function mgInterview() {
+function mgInterview(stake) {
   let round = 0, hype = 0, trust = 0;
   function showRound() {
     if (round >= 3) {
       S.followers = Math.round(S.followers * (1 + hype / 100) * PRESTIGE.followerMult);
       S.trust = clamp(S.trust + trust, 0, 100);
-      const cashReward = hype * 3000;
-      S.cash += cashReward;
-      pushNotify("🎤 Interview beendet!", `+${hype.toFixed(0)}% Follower-Hype, +${fmtMoney(cashReward)}`);
-      closeModal(); renderAll();
+      // Schwacher Auftritt (wenig Hype) => Verlust; starker Auftritt => bis zu 3x.
+      const multiplier = clamp(hype / 12, 0.3, 3);
+      const net = resolveStake("interview", stake, multiplier, $("modal-box"));
+      pushNotify("🎤 Interview beendet!", `+${hype.toFixed(0)}% Follower-Hype, ${net >= 0 ? "+" : ""}${fmtMoney(net)}`);
+      closeModal();
       return;
     }
     const q = INTERVIEW_QUESTIONS[round];
-    const html = `<h2>🎤 PR-Interview — Runde ${round + 1}/3</h2><p>${q.q}</p>` +
+    const html = `<h2>🎤 PR-Interview — Runde ${round + 1}/3</h2><p style="font-size:0.78rem;color:var(--text-dim)">Einsatz: ${fmtMoney(stake)}</p><p>${q.q}</p>` +
       q.options.map((o, i) => `<button class="btn btn-secondary" data-oi="${i}" style="display:block;width:100%;margin:6px 0;text-align:left">${o.text}</button>`).join("");
     openModal(html);
     q.options.forEach((o, i) => {
@@ -1306,19 +1354,24 @@ function mgInterview() {
   showRound();
 }
 
-function mgBattle(auto) {
+function mgBattle(auto, stake) {
   const rival = choice(RIVALS);
   if (auto) { resolveBattleAuto(rival); return; }
   let round = 0, hits = 0;
   function showRound() {
     if (round >= 3) {
       const win = hits >= 2;
-      applyBattleResult(rival, win);
+      battleFlavor(rival, win);
+      // 0 Treffer: Totalverlust. 1: Teilverlust. 2: Gewinn. 3: großer Gewinn.
+      const multiplier = [0, 0.4, 1.6, 2.8][hits];
+      const net = resolveStake("battle", stake, multiplier, $("bt-btn"));
+      pushNotify(win ? "⚔️ Sieg!" : "😞 Niederlage", `${hits}/3 Treffer — ${net >= 0 ? "+" : ""}${fmtMoney(net)}`);
       closeModal();
       return;
     }
     const zoneStart = rand(30, 55);
     const html = `<h2>⚔️ Battle vs. ${rival.emoji} ${rival.name}</h2>
+      <p style="font-size:0.78rem;color:var(--text-dim)">Einsatz: ${fmtMoney(stake)}</p>
       <p>"${choice(BATTLE_LINES)}"</p>
       <p>Runde ${round + 1}/3 — Klicke KONTERN wenn der Zeiger in der Zone ist!</p>
       <div style="height:24px;background:var(--bg);border-radius:8px;position:relative;overflow:hidden;border:1px solid var(--border)">
@@ -1344,18 +1397,22 @@ function resolveBattleAuto(rival) {
   const winChance = clamp(0.5 + S.followers / 200000, 0.3, 0.95);
   applyBattleResult(rival, Math.random() < winChance);
 }
-function applyBattleResult(rival, win) {
+// Follower-/Feed-Reaktion, gemeinsam genutzt von automatischen und manuellen Battles.
+function battleFlavor(rival, win) {
   if (win) {
     S.followers = Math.round(S.followers * 1.1 * PRESTIGE.followerMult);
-    S.cash += 5000;
     addFeedItem("Du", `Hab ${rival.name} im Wortgefecht besiegt! 💪`, "player");
-    pushNotify("⚔️ Sieg!", `Du hast ${rival.name} besiegt! +10% Follower`);
-    SND.success();
   } else {
     S.followers = Math.max(10, Math.round(S.followers * 0.95));
     addFeedItem(`${rival.emoji} ${rival.name}`, "Zu einfach besiegt. 😏", "rival");
-    pushNotify("😞 Niederlage", `${rival.name} hat gewonnen. -5% Follower`);
   }
+}
+// Nur fuer automatisch aufgeloeste Battles (PR-Agentur/Social-Botnet/Herausforderungen) —
+// kein Spieler-Einsatz im Spiel, daher fester kleiner Bonus statt Einsatz-Multiplikator.
+function applyBattleResult(rival, win) {
+  battleFlavor(rival, win);
+  if (win) { S.cash += 5000; pushNotify("⚔️ Sieg!", `Du hast ${rival.name} besiegt! +10% Follower, +5.000 €`); SND.success(); }
+  else pushNotify("😞 Niederlage", `${rival.name} hat gewonnen. -5% Follower`);
   renderAll();
 }
 function battleChallengeLoop() {
@@ -1367,6 +1424,215 @@ function battleChallengeLoop() {
     }
     battleChallengeLoop();
   }, rand(90000, 160000));
+}
+
+// ============================================================
+// CASINO (Roulette, Blackjack, Spielautomat) — echtes Einsatz-Risiko,
+// kein Cooldown (im Gegensatz zu den Skill-Mini-Games oben absichtlich
+// zum wiederholten Zocken gedacht).
+// ============================================================
+
+// Zahlt/kassiert einen Einsatz nach Multiplikator aus (0 = Totalverlust,
+// 1 = break-even, >1 = Gewinn). Wie resolveStake(), aber ohne Cooldown.
+function resolveBet(stake, multiplier, el) {
+  const payout = stake * multiplier;
+  const net = payout - stake;
+  S.cash += net;
+  if (net > S.stats.biggestWin) S.stats.biggestWin = net;
+  if (net < S.stats.biggestLoss) S.stats.biggestLoss = net;
+  floatMoney(el, net);
+  net >= 0 ? SND.gain() : SND.loss();
+  if (net > 0 && net > netWorth() * 0.03) spawnConfetti(50);
+  renderHud();
+  renderStats();
+  return net;
+}
+function checkCasinoStake(id) {
+  const stake = Math.floor(parseFloat($(id) ? $(id).value : 0) || 0);
+  if (stake < MG_MIN_STAKE) { pushNotify("⚠️ Einsatz zu niedrig", `Mindesteinsatz: ${fmtMoney(MG_MIN_STAKE)}`); return null; }
+  if (stake > S.cash) { pushNotify("⚠️ Nicht genug Geld", "Dein Einsatz übersteigt deine Kasse."); return null; }
+  return stake;
+}
+
+// ---- Roulette (europäisch, 0-36, Standard-Quoten -> ~2,7% Hausvorteil) ----
+const ROULETTE_RED = new Set([1, 3, 5, 7, 9, 12, 14, 16, 18, 19, 21, 23, 25, 27, 30, 32, 34, 36]);
+function rouletteColor(n) { return n === 0 ? "green" : ROULETTE_RED.has(n) ? "red" : "black"; }
+function rouletteColorLabel(c) { return c === "red" ? "Rot" : c === "black" ? "Schwarz" : "Grün"; }
+
+function updateRouletteBetUI() {
+  const type = $("roulette-bet-type").value;
+  const box = $("roulette-bet-value");
+  if (type === "color") box.innerHTML = `<div class="casino-choice-row"><button class="btn casino-choice red active" data-val="red">Rot</button><button class="btn casino-choice black" data-val="black">Schwarz</button></div>`;
+  else if (type === "parity") box.innerHTML = `<div class="casino-choice-row"><button class="btn casino-choice active" data-val="even">Gerade</button><button class="btn casino-choice" data-val="odd">Ungerade</button></div>`;
+  else if (type === "dozen") box.innerHTML = `<div class="casino-choice-row"><button class="btn casino-choice active" data-val="1">1–12</button><button class="btn casino-choice" data-val="2">13–24</button><button class="btn casino-choice" data-val="3">25–36</button></div>`;
+  else box.innerHTML = `<input type="number" id="roulette-number" min="0" max="36" value="17">`;
+  box.querySelectorAll(".casino-choice").forEach((b) => (b.onclick = () => {
+    box.querySelectorAll(".casino-choice").forEach((x) => x.classList.remove("active"));
+    b.classList.add("active");
+  }));
+}
+function spinRoulette() {
+  const stake = checkCasinoStake("roulette-stake");
+  if (stake === null) return;
+  const type = $("roulette-bet-type").value;
+  const activeChoice = $("roulette-bet-value").querySelector(".casino-choice.active");
+  const betVal = type === "number" ? clamp(parseInt($("roulette-number").value) || 0, 0, 36) : activeChoice ? activeChoice.dataset.val : null;
+  if (betVal === null) return;
+
+  $("roulette-spin").disabled = true;
+  const resultEl = $("roulette-result");
+  let ticks = 0;
+  const iv = setInterval(() => {
+    resultEl.textContent = randInt(0, 36);
+    resultEl.className = "roulette-result spinning";
+    ticks++;
+    if (ticks > 16) {
+      clearInterval(iv);
+      const n = randInt(0, 36);
+      const color = rouletteColor(n);
+      resultEl.textContent = n;
+      resultEl.className = "roulette-result " + color;
+      let win = false, mult = 0;
+      if (type === "color" && betVal === color) { win = true; mult = 2; }
+      else if (type === "parity") {
+        const isEven = n !== 0 && n % 2 === 0;
+        if (n !== 0 && (betVal === "even") === isEven) { win = true; mult = 2; }
+      } else if (type === "dozen") {
+        const d = n === 0 ? 0 : Math.ceil(n / 12);
+        if (String(d) === betVal) { win = true; mult = 3; }
+      } else if (type === "number") {
+        if (n === betVal) { win = true; mult = 36; }
+      }
+      const net = resolveBet(stake, mult, $("roulette-spin"));
+      pushNotify(win ? "🎡 Gewonnen!" : "🎡 Verloren", `${n} (${rouletteColorLabel(color)}) — ${net >= 0 ? "+" : ""}${fmtMoney(net)}`);
+      S.rouletteHistory.unshift({ n, color });
+      S.rouletteHistory = S.rouletteHistory.slice(0, 14);
+      renderRouletteHistory();
+      $("roulette-spin").disabled = false;
+    }
+  }, 80);
+}
+function renderRouletteHistory() {
+  const el = $("roulette-history");
+  if (!el) return;
+  el.innerHTML = S.rouletteHistory.map((h) => `<span class="roulette-chip ${h.color}">${h.n}</span>`).join("");
+}
+
+// ---- Blackjack (vereinfacht: Dealer zieht bis 17, keine Splits/Doubles) ----
+const CARD_SUITS = ["♠️", "♥️", "♦️", "♣️"];
+const CARD_RANKS = ["A", "2", "3", "4", "5", "6", "7", "8", "9", "10", "J", "Q", "K"];
+function drawCard() { return { rank: choice(CARD_RANKS), suit: choice(CARD_SUITS) }; }
+function cardValue(rank) { if (rank === "A") return 11; if (rank === "J" || rank === "Q" || rank === "K") return 10; return parseInt(rank); }
+function handValue(cards) {
+  let total = cards.reduce((s, c) => s + cardValue(c.rank), 0);
+  let aces = cards.filter((c) => c.rank === "A").length;
+  while (total > 21 && aces > 0) { total -= 10; aces--; }
+  return total;
+}
+function cardStr(c) { return `${c.rank}${c.suit}`; }
+
+let bjState = null;
+function dealBlackjack() {
+  const stake = checkCasinoStake("bj-stake");
+  if (stake === null) return;
+  bjState = { stake, player: [drawCard(), drawCard()], dealer: [drawCard(), drawCard()], done: false };
+  renderBlackjack();
+}
+function bjHit() {
+  if (!bjState || bjState.done) return;
+  bjState.player.push(drawCard());
+  if (handValue(bjState.player) > 21) finishBlackjack();
+  else renderBlackjack();
+}
+function bjStand() {
+  if (!bjState || bjState.done) return;
+  while (handValue(bjState.dealer) < 17) bjState.dealer.push(drawCard());
+  finishBlackjack();
+}
+function finishBlackjack() {
+  bjState.done = true;
+  const pv = handValue(bjState.player), dv = handValue(bjState.dealer);
+  const playerBJ = bjState.player.length === 2 && pv === 21;
+  const dealerBJ = bjState.dealer.length === 2 && dv === 21;
+  let mult, label;
+  if (pv > 21) { mult = 0; label = "💥 Überkauft!"; }
+  else if (playerBJ && !dealerBJ) { mult = 2.5; label = "🃏 Blackjack!"; }
+  else if (dealerBJ && !playerBJ) { mult = 0; label = "😞 Dealer hat Blackjack"; }
+  else if (dv > 21) { mult = 2; label = "🏆 Dealer überkauft!"; }
+  else if (pv === dv) { mult = 1; label = "🤝 Unentschieden"; }
+  else if (pv > dv) { mult = 2; label = "🏆 Gewonnen!"; }
+  else { mult = 0; label = "😞 Verloren"; }
+  const net = resolveBet(bjState.stake, mult, $("bj-table"));
+  pushNotify(label, `${net >= 0 ? "+" : ""}${fmtMoney(net)}`);
+  renderBlackjack();
+}
+function renderBlackjack() {
+  const el = $("bj-table");
+  if (!bjState) { el.innerHTML = '<p class="hint">Setze einen Einsatz und gib die Karten.</p>'; return; }
+  const pv = handValue(bjState.player), dv = handValue(bjState.dealer);
+  el.innerHTML = `
+    <div class="bj-hand"><div class="bj-label">Dealer (${bjState.done ? dv : "?"})</div>
+      <div class="bj-cards">${bjState.dealer.map((c, i) => (i === 0 || bjState.done ? `<span class="bj-card">${cardStr(c)}</span>` : `<span class="bj-card back">🂠</span>`)).join("")}</div></div>
+    <div class="bj-hand"><div class="bj-label">Du (${pv})</div>
+      <div class="bj-cards">${bjState.player.map((c) => `<span class="bj-card">${cardStr(c)}</span>`).join("")}</div></div>
+    ${!bjState.done
+      ? `<div class="casino-choice-row"><button class="btn btn-secondary" id="bj-hit">Karte</button><button class="btn btn-primary" id="bj-stand">Halten</button></div>`
+      : `<button class="btn btn-secondary" id="bj-newround" style="width:100%">Neue Runde</button>`}`;
+  if (!bjState.done) { $("bj-hit").onclick = bjHit; $("bj-stand").onclick = bjStand; }
+  else $("bj-newround").onclick = () => { bjState = null; renderBlackjack(); };
+}
+
+// ---- Spielautomat (gewichtete Symbole, austariert auf ~14% Hausvorteil) ----
+const SLOT_SYMBOLS = [
+  { s: "🍒", w: 30, pay3: 3, pay2: 1 },
+  { s: "🍋", w: 25, pay3: 4.5, pay2: 1 },
+  { s: "🔔", w: 20, pay3: 8, pay2: 1.3 },
+  { s: "⭐", w: 15, pay3: 14, pay2: 1.6 },
+  { s: "💎", w: 7, pay3: 35, pay2: 2.2 },
+  { s: "7️⃣", w: 3, pay3: 90, pay2: 3.5 },
+];
+function spinSlotSymbol() {
+  const totalW = SLOT_SYMBOLS.reduce((a, b) => a + b.w, 0);
+  let x = Math.random() * totalW;
+  for (const sym of SLOT_SYMBOLS) { if (x < sym.w) return sym; x -= sym.w; }
+  return SLOT_SYMBOLS[0];
+}
+function spinSlots() {
+  const stake = checkCasinoStake("slots-stake");
+  if (stake === null) return;
+  $("slots-spin").disabled = true;
+  const reelEls = document.querySelectorAll("#slots-reels span");
+  let ticks = 0;
+  const iv = setInterval(() => {
+    reelEls.forEach((el) => (el.textContent = spinSlotSymbol().s));
+    ticks++;
+    if (ticks > 13) {
+      clearInterval(iv);
+      const result = [spinSlotSymbol(), spinSlotSymbol(), spinSlotSymbol()];
+      reelEls.forEach((el, i) => (el.textContent = result[i].s));
+      let mult = 0, label = "Leider nichts...";
+      if (result[0].s === result[1].s && result[1].s === result[2].s) { mult = result[0].pay3; label = "🎉 JACKPOT-KOMBO!"; }
+      else if (result[0].s === result[1].s || result[1].s === result[2].s || result[0].s === result[2].s) {
+        const m = result[0].s === result[1].s ? result[0] : result[1].s === result[2].s ? result[1] : result[0];
+        mult = m.pay2; label = "✨ Zwei Treffer!";
+      }
+      const net = resolveBet(stake, mult, $("slots-spin"));
+      const resEl = $("slots-result");
+      resEl.textContent = `${label} ${net >= 0 ? "+" : ""}${fmtMoney(net)}`;
+      resEl.className = "slots-result " + (net >= 0 ? "pos" : "neg");
+      $("slots-spin").disabled = false;
+    }
+  }, 90);
+}
+
+function initCasino() {
+  $("roulette-bet-type").addEventListener("change", updateRouletteBetUI);
+  updateRouletteBetUI();
+  $("roulette-spin").addEventListener("click", spinRoulette);
+  renderRouletteHistory();
+  renderBlackjack();
+  $("bj-deal").addEventListener("click", dealBlackjack);
+  $("slots-spin").addEventListener("click", spinSlots);
 }
 
 // ============================================================
@@ -2045,6 +2311,7 @@ function secondTick() {
   ipoTick();
   autopilotTick();
   analyseCdTick();
+  renderMinigameCooldowns();
   checkSponsor();
   renderHud();
   renderAutomation();
@@ -2124,6 +2391,7 @@ function init() {
   initEventListeners();
   applyTheme();
   cloudInit();
+  initCasino();
   $("chk-sound").checked = S.soundOn;
   $("chk-autopilot").checked = S.autopilot;
   renderAll();

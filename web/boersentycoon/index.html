@@ -75,6 +75,7 @@
     <button class="tab-btn" data-tab="postfach">📥 Postfach <span class="badge" id="inbox-badge" hidden>0</span></button>
     <button class="tab-btn" data-tab="ipo">🏛️ IPO</button>
     <button class="tab-btn" data-tab="minigames">🎮 Mini-Games</button>
+    <button class="tab-btn" data-tab="casino">🎰 Casino</button>
     <button class="tab-btn" data-tab="stats">📊 Statistik</button>
     <button class="tab-btn" data-tab="settings">⚙️ Optionen</button>
   </nav>
@@ -241,28 +242,82 @@
       <div class="minigame-hub" id="minigame-hub">
         <div class="mg-card">
           <h3>📉 Chart-Crash</h3>
-          <p>Klicke SELL bevor der Chart abstürzt!</p>
-          <button class="btn btn-primary" data-mg="chartcrash">Starten</button>
+          <p>Klicke SELL bevor der Chart abstürzt! Gutes Timing = Gewinn, zu spät = Verlust.</p>
+          <label class="mg-stake-label">Einsatz (€)<input type="number" class="mg-stake-input" id="stake-chartcrash" value="200" min="10" step="10"></label>
+          <button class="btn btn-primary" data-mg="chartcrash">Einsatz platzieren &amp; Starten</button>
+          <div class="mg-cd" id="cd-chartcrash"></div>
         </div>
         <div class="mg-card">
           <h3>🛡️ Hacker-Abwehr</h3>
-          <p>Gib den Code rechtzeitig ein.</p>
-          <button class="btn btn-primary" data-mg="hacker">Starten</button>
+          <p>Merke dir den Code und gib ihn rechtzeitig ein — sonst ist der Einsatz weg.</p>
+          <label class="mg-stake-label">Einsatz (€)<input type="number" class="mg-stake-input" id="stake-hacker" value="200" min="10" step="10"></label>
+          <button class="btn btn-primary" data-mg="hacker">Einsatz platzieren &amp; Starten</button>
+          <div class="mg-cd" id="cd-hacker"></div>
         </div>
         <div class="mg-card">
           <h3>🎤 PR-Interview</h3>
-          <p>3 Runden für maximalen Hype.</p>
-          <button class="btn btn-primary" data-mg="interview">Starten</button>
+          <p>3 Runden für maximalen Hype — schwache Antworten kosten Einsatz.</p>
+          <label class="mg-stake-label">Einsatz (€)<input type="number" class="mg-stake-input" id="stake-interview" value="200" min="10" step="10"></label>
+          <button class="btn btn-primary" data-mg="interview">Einsatz platzieren &amp; Starten</button>
+          <div class="mg-cd" id="cd-interview"></div>
         </div>
         <div class="mg-card">
           <h3>⚔️ Influencer-Battle</h3>
-          <p>Timing-Wortgefecht gegen Rivalen.</p>
-          <button class="btn btn-primary" data-mg="battle">Starten</button>
+          <p>Timing-Wortgefecht gegen Rivalen — je mehr Treffer, desto höher der Gewinn.</p>
+          <label class="mg-stake-label">Einsatz (€)<input type="number" class="mg-stake-input" id="stake-battle" value="200" min="10" step="10"></label>
+          <button class="btn btn-primary" data-mg="battle">Einsatz platzieren &amp; Starten</button>
+          <div class="mg-cd" id="cd-battle"></div>
         </div>
       </div>
       <div class="strategy-cards-box">
         <h3>🃏 Strategie-Karten</h3>
         <div id="strategy-cards" class="strategy-cards"></div>
+      </div>
+    </section>
+
+    <!-- ================= CASINO ================= -->
+    <section class="panel" id="panel-casino">
+      <p class="hint">Echtes Glücksspiel-Risiko: Einsatz weg oder vervielfacht — kein Cooldown, spiel so oft du willst.</p>
+      <div class="casino-grid">
+
+        <div class="casino-game">
+          <h3>🎡 Roulette</h3>
+          <div class="roulette-result" id="roulette-result">—</div>
+          <div class="roulette-history" id="roulette-history"></div>
+          <div class="casino-controls">
+            <label>Einsatz (€)<input type="number" id="roulette-stake" value="200" min="10" step="10"></label>
+            <label>Wette
+              <select id="roulette-bet-type">
+                <option value="color">Farbe (2x)</option>
+                <option value="parity">Gerade/Ungerade (2x)</option>
+                <option value="dozen">Dutzend (3x)</option>
+                <option value="number">Zahl 0-36 (36x)</option>
+              </select>
+            </label>
+            <div id="roulette-bet-value"></div>
+            <button class="btn btn-primary" id="roulette-spin">🎡 Drehen</button>
+          </div>
+        </div>
+
+        <div class="casino-game">
+          <h3>🃏 Blackjack</h3>
+          <div class="bj-table" id="bj-table"><p class="hint">Setze einen Einsatz und gib die Karten.</p></div>
+          <div class="casino-controls">
+            <label>Einsatz (€)<input type="number" id="bj-stake" value="200" min="10" step="10"></label>
+            <button class="btn btn-primary" id="bj-deal">🃏 Geben</button>
+          </div>
+        </div>
+
+        <div class="casino-game">
+          <h3>🎰 Spielautomat</h3>
+          <div class="slots-reels" id="slots-reels"><span>❓</span><span>❓</span><span>❓</span></div>
+          <div class="slots-result" id="slots-result"></div>
+          <div class="casino-controls">
+            <label>Einsatz (€)<input type="number" id="slots-stake" value="200" min="10" step="10"></label>
+            <button class="btn btn-primary" id="slots-spin">🎰 Spin</button>
+          </div>
+        </div>
+
       </div>
     </section>
 
