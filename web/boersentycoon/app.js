@@ -1912,6 +1912,15 @@ function init() {
 
   showTutorial();
   window.addEventListener("beforeunload", saveGame);
+
+  // Haelt den Spielstand ueber ein Republish hinweg fuer bereits offene
+  // Tabs am Leben (localStorage traegt ihn ohnehin schon URL-uebergreifend,
+  // das hier faengt zusaetzlich noch die letzten <10s vor dem Autosave ab).
+  window.claude?.hot?.snapshot?.(() => S);
 }
 
-document.addEventListener("DOMContentLoaded", init);
+function boot() {
+  if (window.claude?.hot?.ready) window.claude.hot.ready(init);
+  else init();
+}
+document.addEventListener("DOMContentLoaded", boot);
