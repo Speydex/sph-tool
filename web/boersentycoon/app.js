@@ -160,7 +160,7 @@ function initLeaderboard() {
       snap.forEach((doc) => rows.push(Object.assign({ uid: doc.id }, doc.data())));
       renderLeaderboard(rows);
     },
-    () => renderLeaderboardUnavailable()
+    () => renderLeaderboardRulesOutdated()
   );
 }
 function renderLeaderboard(rows) {
@@ -177,7 +177,14 @@ function renderLeaderboard(rows) {
 }
 function renderLeaderboardUnavailable() {
   const el = $("leaderboard-list");
-  if (el) el.innerHTML = '<p class="hint">Bestenliste braucht Cloud-Speicher — melde dich im Optionen-Tab an, um mitzumachen (Ansehen geht auch ohne Login).</p>';
+  if (el) el.innerHTML = '<p class="hint">Bestenliste braucht Cloud-Speicher — diese Funktion ist auf dieser Seite noch nicht eingerichtet.</p>';
+}
+// Feuert, wenn Firebase konfiguriert ist, das Lesen der Bestenliste aber
+// abgelehnt wird — fast immer, weil die Firestore-Regeln noch nicht die
+// leaderboard-Collection aus firestore.rules enthalten.
+function renderLeaderboardRulesOutdated() {
+  const el = $("leaderboard-list");
+  if (el) el.innerHTML = '<p class="hint">Bestenliste konnte nicht geladen werden. Das liegt fast immer an veralteten Firestore-Regeln — prüfe, ob der aktuelle Inhalt aus <code>firestore.rules</code> in der Firebase-Konsole unter „Regeln" veröffentlicht ist.</p>';
 }
 
 function onCloudAuthChanged(user) {
