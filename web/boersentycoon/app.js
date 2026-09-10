@@ -512,15 +512,31 @@ function newsLoop() {
   setTimeout(newsLoop, rand(12000, 22000));
 }
 
+// Einzige Quelle der Wahrheit für den Ticker-Inhalt. Beide Kopien (Original +
+// Duplikat fürs nahtlose Marquee) werden aus demselben Array neu gebaut und
+// ihre CSS-Animation wird bei jeder Änderung synchron neu gestartet — sonst
+// können die zwei unabhängig laufenden Animationen nach vielen Änderungen
+// (lange Spielzeit) leicht auseinanderdriften und sich sichtbar überlappen.
+let newsTickerItems = [];
 function addNewsTicker(text, cls) {
+  newsTickerItems.push({ text, cls });
+  if (newsTickerItems.length > 12) newsTickerItems.shift();
+  renderNewsTicker();
+}
+function renderNewsTicker() {
   const content = $("news-ticker-content"), dup = $("news-ticker-content-dup");
-  const span = document.createElement("span");
-  span.className = "news-item" + (cls ? " " + cls : "");
-  span.textContent = "🔴 " + text;
-  content.appendChild(span);
-  dup.appendChild(span.cloneNode(true));
-  // Begrenzen
-  while (content.children.length > 12) { content.removeChild(content.firstChild); dup.removeChild(dup.firstChild); }
+  if (!content || !dup) return;
+  const html = newsTickerItems
+    .map((it) => `<span class="news-item${it.cls ? " " + it.cls : ""}">🔴 ${it.text}</span>`)
+    .join("");
+  content.innerHTML = html;
+  dup.innerHTML = html;
+  // Reflow erzwingen, damit beide Kopien garantiert bei Phase 0 neu starten.
+  [content, dup].forEach((el) => {
+    el.style.animation = "none";
+    void el.offsetWidth;
+    el.style.animation = "";
+  });
 }
 
 function flashCrashLoop() {
