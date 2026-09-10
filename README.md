@@ -71,3 +71,25 @@ python wetter.py Berlin
 python wetter.py "Frankfurt am Main"
 python wetter.py --tage 5 München
 ```
+
+## Bonus: BörsenTycoon (`web/boersentycoon/`)
+
+Ein eigenständiges, browserbasiertes Börsen- & Social-Media-Tycoon-Spiel —
+ebenfalls unabhängig vom Schulportal-Teil, reines Vanilla-HTML/CSS/JS ohne
+Build-Schritt oder Server. Läuft komplett im Browser (Speicherstand in
+`localStorage`) und wird zusammen mit der Wetter-App auf GitHub Pages
+veröffentlicht (`/boersentycoon/`).
+
+Features: 10 fiktive Aktien in 3 Branchen mit Live-Charts, Social-Media-Posts
+mit echtem Kurs-Einfluss, Krypto-Mining mit Verkabelungs-/Kühlungs-Minigames,
+Immobilien & Luxusgüter mit Spielboni, SEC/BaFin-Risikosystem mit
+Razzia-Minigame, Postfach mit Multiple-Choice-Chats & Informanten,
+eigener Börsengang (IPO) samt Roadshow und feindlichen Übernahmen,
+Mini-Games (Chart-Crash, Hacker-Abwehr, PR-Interview, Influencer-Battle),
+Talentbaum, Prestige/Ruhestand-System und freischaltbare Dashboard-Themes.
+
+```powershell
+# Lokal ausprobieren (irgendein statischer Server reicht):
+python -m http.server 8000 --directory web/boersentycoon
+# dann im Browser: http://localhost:8000
+```
