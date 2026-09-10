@@ -3,18 +3,27 @@
 // ============================================================
 // Diese Datei wird NICHT automatisch deployt (dieses Projekt hat keine
 // Firebase-CLI-Anbindung) — kopiere ihren Inhalt manuell in die Firebase-
-// Konsole: Firestore Database -> Regeln -> einfügen -> Veröffentlichen.
+// Konsole: Firestore Database -> Regeln -> einfügen (ersetzt den
+// vorhandenen Text) -> Veröffentlichen.
 //
-// Wirkung: Jede*r eingeloggte Nutzer*in darf ausschließlich das eigene
-// Speicherstand-Dokument (Dokument-ID = eigene Firebase-UID) lesen und
-// schreiben. Niemand kann fremde Spielstände sehen oder verändern, auch
-// nicht über die Konsole/API — nur eingeloggt und nur das eigene Dokument.
+// Wirkung:
+// - saves/{userId}: Jede*r eingeloggte Nutzer*in darf ausschließlich das
+//   eigene Speicherstand-Dokument lesen und schreiben. Niemand kann fremde
+//   Spielstände sehen oder verändern, auch nicht über die Konsole/API.
+// - leaderboard/{userId}: Öffentlich lesbar (auch ohne Login, damit die
+//   Bestenliste im Spiel für alle sichtbar ist), aber jede*r darf
+//   ausschließlich den eigenen Eintrag schreiben — niemand kann sich für
+//   jemand anderen ausgeben oder fremde Platzierungen verändern.
 
 rules_version = '2';
 service cloud.firestore {
   match /databases/{database}/documents {
     match /saves/{userId} {
       allow read, write: if request.auth != null && request.auth.uid == userId;
+    }
+    match /leaderboard/{userId} {
+      allow read: if true;
+      allow write: if request.auth != null && request.auth.uid == userId;
     }
   }
 }
