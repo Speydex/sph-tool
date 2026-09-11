@@ -83,6 +83,7 @@
     <button class="tab-btn" data-tab="casino">🎰 Casino</button>
     <button class="tab-btn" data-tab="stats">📊 Statistik</button>
     <button class="tab-btn" data-tab="settings">⚙️ Optionen</button>
+    <button class="tab-btn" data-tab="admin" id="tab-admin-btn" hidden>👑 Admin</button>
   </nav>
 
   <main class="tab-panels">
@@ -336,6 +337,42 @@
       <label><input type="checkbox" id="chk-sound" checked> Soundeffekte aktiviert</label>
       <h3>💾 Speicherstand</h3>
       <button id="btn-reset" class="btn btn-danger">Spielstand zurücksetzen (nur lokal)</button>
+    </section>
+
+    <!-- ================= ADMIN ================= -->
+    <section class="panel" id="panel-admin">
+      <h3>👑 Admin-Panel</h3>
+      <p class="hint">Nur für deinen Account sichtbar — direkter Zugriff auf den Spielstand.</p>
+
+      <div class="admin-box">
+        <h4>💰 Kasse</h4>
+        <label>Betrag (€)<input type="number" id="admin-cash-input" placeholder="z.B. 1000000" step="1000"></label>
+        <div class="admin-actions">
+          <button class="btn btn-primary" id="admin-cash-set">Kasse setzen</button>
+          <button class="btn btn-secondary" id="admin-cash-add">Hinzufügen</button>
+        </div>
+      </div>
+
+      <div class="admin-box">
+        <h4>👥 Follower</h4>
+        <label>Follower-Zahl<input type="number" id="admin-followers-input" placeholder="z.B. 100000" step="1000"></label>
+        <button class="btn btn-primary" id="admin-followers-set">Follower setzen</button>
+      </div>
+
+      <div class="admin-box">
+        <h4>🏆 Rang direkt erreichen</h4>
+        <p class="hint">Setzt die Kasse so hoch, dass dein Vermögen den gewählten Rang erreicht.</p>
+        <div class="admin-actions" id="admin-rank-grid"></div>
+      </div>
+
+      <div class="admin-box">
+        <h4>⚡ Sonstiges</h4>
+        <div class="admin-actions">
+          <button class="btn btn-secondary" id="admin-sec-reset">SEC-Risiko auf 0</button>
+          <button class="btn btn-secondary" id="admin-trust-max">Vertrauen auf 100</button>
+          <button class="btn btn-secondary" id="admin-unlock-all">Alle Upgrades freischalten</button>
+        </div>
+      </div>
     </section>
 
   </main>
