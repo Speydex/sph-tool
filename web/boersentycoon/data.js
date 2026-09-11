@@ -7,7 +7,6 @@ const STOCKS = [
   { id: "macrosoft",  name: "MacroSoft",    ticker: "MSFT2", cat: "tech",   base: 340, vol: 0.007, drift: 0.0006, desc: "Kerngeschäft stabil wie ein Fels." },
   { id: "bytedrive",  name: "ByteDrive",    ticker: "BYTD", cat: "tech",    base: 85,  vol: 0.018, drift: 0.0009, desc: "Solides Mittelklasse-Tech-Unternehmen." },
   { id: "solarpulse", name: "SolarPulse",   ticker: "SOLP", cat: "energie", base: 45,  vol: 0.026, drift: 0.0005, desc: "Erneuerbare Energie, stark wetterabhängig." },
-  { id: "spacexplore",name: "SpaceXplore",  ticker: "SPXP", cat: "energie", base: 210, vol: 0.03,  drift: 0.002,  desc: "Mega-Hype-Raumfahrt-Konzern." },
   { id: "cryptomoon", name: "CryptoMoon",   ticker: "CMOON", cat: "energie", base: 60,  vol: 0.06,  drift: 0.0,    desc: "Extrem volatile Krypto-Aktie." },
   { id: "memecoin",   name: "MemeCoin",     ticker: "MEME", cat: "energie", base: 12,  vol: 0.08,  drift: -0.0005, desc: "Chaotisch, unberechenbar, irrational." },
   { id: "burgerking", name: "BurgerKingpin",ticker: "BURG", cat: "konsum",  base: 55,  vol: 0.004, drift: 0.0006, desc: "Krisensicherer Fast-Food-Gigant." },
@@ -33,7 +32,6 @@ const NEWS_TEMPLATES = [
   { text: "Wetterkatastrophe trifft {company}!", pct: [-0.25, -0.1], companies: ["solarpulse"] },
   { text: "Rekord-Sonnenertrag beflügelt {company}!", pct: [0.1, 0.3], companies: ["solarpulse"] },
   { text: "Elonartiger CEO twittert über {company} — Kurs tanzt!", pct: [-0.3, 0.4], companies: ["memecoin", "cryptomoon"] },
-  { text: "{company} kündigt Raketenstart an — Investoren jubeln!", pct: [0.15, 0.35], companies: ["spacexplore"] },
   { text: "Ölpreis-Schock trifft {company}!", pct: [-0.15, 0.15], companies: ["globaloil"] },
   { text: "Insider-Verkäufe bei {company} sorgen für Panik!", pct: [-0.15, -0.05] },
   { text: "{company} übertrifft Erwartungen deutlich!", pct: [0.08, 0.2] },
@@ -120,10 +118,10 @@ const LUXURY_ITEMS = [
 
 // Mining Rigs
 const RIG_TYPES = [
-  { id: "gpu_basic", name: "Einsteiger-GPU", icon: "🎮", cost: 500, coinsPerSec: 0.02, powerKw: 0.3, scaling: 1.15 },
-  { id: "gpu_pro", name: "Profi-GPU-Rig", icon: "🖥️", cost: 5000, coinsPerSec: 0.15, powerKw: 1.2, scaling: 1.16 },
-  { id: "server_rack", name: "Server-Rack", icon: "🗄️", cost: 40000, coinsPerSec: 1.0, powerKw: 6, scaling: 1.17 },
-  { id: "datacenter", name: "Mini-Rechenzentrum", icon: "🏭", cost: 300000, coinsPerSec: 6.0, powerKw: 30, scaling: 1.18 },
+  { id: "gpu_basic", name: "Einsteiger-GPU", icon: "🎮", cost: 500, coinsPerSec: 0.016, powerKw: 0.3, scaling: 1.15 },
+  { id: "gpu_pro", name: "Profi-GPU-Rig", icon: "🖥️", cost: 5000, coinsPerSec: 0.12, powerKw: 1.2, scaling: 1.16 },
+  { id: "server_rack", name: "Server-Rack", icon: "🗄️", cost: 40000, coinsPerSec: 0.8, powerKw: 6, scaling: 1.17 },
+  { id: "datacenter", name: "Mini-Rechenzentrum", icon: "🏭", cost: 300000, coinsPerSec: 4.8, powerKw: 30, scaling: 1.18 },
 ];
 const COIN_PRICE_BASE = 40; // € pro Coin, schwankt leicht
 
@@ -204,12 +202,12 @@ const INBOX_TEMPLATES = [
   },
   {
     from: "🦈 Großinvestor", subject: "VIP-Kapitalangebot",
-    text: "Wir geben dir 500.000 € Kapital. Dafür: bring den Kurs einer Aktie deiner Wahl in 3 Minuten um 20% nach oben.",
+    text: "Wir geben dir 300.000 € Kapital. Dafür: bring den Kurs einer Aktie deiner Wahl in 3 Minuten um 20% nach oben.",
     options: [
       { label: "Deal annehmen", effect: { vipDeal: true } },
       { label: "Zu riskant, ablehnen.", effect: {} },
     ],
-    requiresNetWorth: 300000,
+    requiresNetWorth: 500000,
   },
   {
     from: "⚖️ Finanzaufsicht", subject: "Warnung",

@@ -958,7 +958,7 @@ function closeShort(id, qty, el) {
 
 function payDividends() {
   let total = 0;
-  const yieldBase = 0.006 * (1 + 0.2 * (S.upgrades.dividend_boost || 0));
+  const yieldBase = 0.0035 * (1 + 0.2 * (S.upgrades.dividend_boost || 0));
   const taxCut = estate().taxHaven ? 1 - estate().taxHaven : 1;
   for (const s of STOCKS) {
     const p = S.portfolio[s.id];
@@ -1455,9 +1455,9 @@ function answerInbox(msgId, optionIndex) {
 let activeInvestorDeal = null;
 function startInvestorDeal(stockId) {
   const cfg = STOCKS.find((s) => s.id === stockId) || choice(STOCKS);
-  S.cash += 500000;
+  S.cash += 300000;
   activeInvestorDeal = { stockId: cfg.id, targetPct: 0.2, startPrice: S.stocks[cfg.id].price, deadline: now() + 180000 };
-  pushNotify("🦈 Deal angenommen!", `+500.000 € erhalten. Bringe ${cfg.name} in 3 Minuten um 20% nach oben!`);
+  pushNotify("🦈 Deal angenommen!", `+300.000 € erhalten. Bringe ${cfg.name} in 3 Minuten um 20% nach oben!`);
 }
 function investorDealTick() {
   if (!activeInvestorDeal) return;
@@ -1465,13 +1465,13 @@ function investorDealTick() {
   const cur = S.stocks[d.stockId].price;
   const change = (cur - d.startPrice) / d.startPrice;
   if (change >= d.targetPct) {
-    S.cash += 300000;
-    pushNotify("🏆 Deal erfüllt!", "+300.000 € Erfolgsprämie vom Großinvestor!");
+    S.cash += 180000;
+    pushNotify("🏆 Deal erfüllt!", "+180.000 € Erfolgsprämie vom Großinvestor!");
     activeInvestorDeal = null;
   } else if (now() > d.deadline) {
-    S.cash -= 150000;
+    S.cash -= 90000;
     S.trust = clamp(S.trust - 10, 0, 100);
-    pushNotify("😡 Deal gescheitert", "Konventionalstrafe: -150.000 €");
+    pushNotify("😡 Deal gescheitert", "Konventionalstrafe: -90.000 €");
     activeInvestorDeal = null;
   }
 }
@@ -1954,8 +1954,8 @@ function vipEventLoop() {
       pushNotify("🥂 VIP-Event", `Insider verrät dir: ${st.name} wird bald steigen!`);
       setTimeout(() => { applyLocalPriceEffect(st, effect); S.stocks[st.id].markerUntil = now() + 30000; S.stocks[st.id].markerType = "boost"; renderAll(); }, 8000);
     }
-    if (hasLux("yacht") && Math.random() < 0.5) {
-      const amt = rand(20000, 80000);
+    if (hasLux("yacht") && Math.random() < 0.4) {
+      const amt = rand(10000, 40000);
       S.cash += amt;
       pushNotify("🛥️ Yacht-Networking", `Ein KI-Milliardär investiert ${fmtMoney(amt)} in dich!`);
       renderAll();
@@ -2509,9 +2509,9 @@ function showTutorial() {
 // ============================================================
 function marketAnalyse() {
   if (now() < S.analyseCdUntil) return;
-  S.analyseCdUntil = now() + 4000;
+  S.analyseCdUntil = now() + 6000;
   if (Math.random() < 0.7) {
-    const amt = Math.max(15, netWorth() * 0.001);
+    const amt = Math.max(10, netWorth() * 0.0006);
     S.cash += amt;
     floatMoney($("btn-analyse"), amt);
     SND.gain();
@@ -2548,7 +2548,7 @@ function secondTick() {
   renderHud();
   renderAutomation();
   // Sponsor-Einnahmen
-  if (S.sponsorActive) S.cash += 3 + S.followers / 5000;
+  if (S.sponsorActive) S.cash += 1.5 + S.followers / 9000;
   // Level-Up Talentpunkte
   const lvl = level();
   if (!S._lastLevel) S._lastLevel = 1;
