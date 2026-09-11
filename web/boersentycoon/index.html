@@ -329,6 +329,12 @@
 
     <!-- ================= EINSTELLUNGEN ================= -->
     <section class="panel" id="panel-settings">
+      <h3>🏷️ Spielername</h3>
+      <p class="hint">Wird in der Bestenliste und beim Admin-Geld-Senden angezeigt (statt deiner E-Mail).</p>
+      <div class="admin-actions">
+        <input type="text" id="player-name-input" placeholder="Dein Name" maxlength="24">
+        <button class="btn btn-primary" id="player-name-save">Speichern</button>
+      </div>
       <h3>☁️ Account & Cloud-Speicher</h3>
       <div class="account-box" id="account-box"></div>
       <h3>🎨 Theme</h3>
@@ -367,9 +373,11 @@
 
       <div class="admin-box">
         <h4>🎁 Geld an andere Spieler senden</h4>
-        <p class="hint">Funktioniert nur bei Spieler:innen mit eigenem Account — sie bekommen den Betrag automatisch gutgeschrieben, sobald sie eingeloggt online sind.</p>
+        <p class="hint">Name wie im Spiel gewählt eingeben — funktioniert nur bei Spieler:innen mit eigenem Account, die sich schon einmal eingeloggt haben.</p>
+        <label>Name<input type="text" id="admin-gift-name" placeholder="z.B. Lukas"></label>
         <label>Betrag (€)<input type="number" id="admin-gift-amount" placeholder="z.B. 100000" step="1000"></label>
-        <div id="admin-gift-players"></div>
+        <button class="btn btn-primary" id="admin-gift-send">Senden</button>
+        <p class="hint" id="admin-gift-players"></p>
       </div>
 
       <div class="admin-box">
