@@ -345,7 +345,7 @@ function freshState() {
     inbox: [], informantUsesCount: 0,
     ipo: { founded: false, name: "", logo: "🏢", ticker: "", price: 0, issuePrice: 0,
       playerPct: 100, marketCap: 0, dividendRate: 2, hqUnlocked: false, hostileSince: 0 },
-    stats: { athNetWorth: STARTING_CASH, biggestWin: 0, biggestLoss: 0, totalTrades: 0, startedAt: now() },
+    stats: { athNetWorth: STARTING_CASH, biggestWin: 0, biggestLoss: 0, totalTrades: 0, startedAt: now(), postsCount: 0, coinsSoldTotal: 0 },
     rouletteHistory: [],
     autopilot: true,
     overclockUntil: 0, overclockCdUntil: 0,
@@ -370,6 +370,55 @@ function savePrestige() {
   try { localStorage.setItem(PRESTIGE_KEY, JSON.stringify(PRESTIGE)); } catch (e) {}
 }
 
+// ============================================================
+// ERFOLGE — bleiben (wie PRESTIGE) über einen Ruhestand hinweg erhalten,
+// deshalb eigener localStorage-Schlüssel statt Teil von S.
+// ============================================================
+const ACHIEVEMENTS_KEY = "boersentycoon_achievements_v1";
+let unlockedAchievements = {};
+function loadAchievements() {
+  try {
+    const raw = localStorage.getItem(ACHIEVEMENTS_KEY);
+    if (raw) unlockedAchievements = JSON.parse(raw);
+  } catch (e) {}
+}
+function saveAchievements() {
+  try { localStorage.setItem(ACHIEVEMENTS_KEY, JSON.stringify(unlockedAchievements)); } catch (e) {}
+}
+function checkAchievements() {
+  let anyNew = false;
+  ACHIEVEMENTS.forEach((a) => {
+    if (unlockedAchievements[a.id]) return;
+    let earned = false;
+    try { earned = !!a.check(S); } catch (e) { earned = false; }
+    if (!earned) return;
+    unlockedAchievements[a.id] = true;
+    anyNew = true;
+    let rewardText = "";
+    if (a.reward) {
+      if (a.reward.cash) { S.cash += a.reward.cash; rewardText = ` (+${fmtMoney(a.reward.cash)})`; }
+      if (a.reward.followers) { S.followers = Math.round(S.followers + a.reward.followers); rewardText = ` (+${fmtNum(a.reward.followers)} Follower)`; }
+    }
+    pushNotify("🏆 Erfolg freigeschaltet!", `${a.icon} ${a.name}${rewardText}`, "levelUp");
+    spawnConfetti(70);
+  });
+  if (anyNew) { saveAchievements(); renderAchievements(); renderHud(); }
+}
+function renderAchievements() {
+  const grid = $("achievements-grid"), progress = $("achievements-progress");
+  if (!grid) return;
+  const unlockedCount = ACHIEVEMENTS.filter((a) => unlockedAchievements[a.id]).length;
+  if (progress) progress.textContent = `${unlockedCount} / ${ACHIEVEMENTS.length}`;
+  grid.innerHTML = ACHIEVEMENTS.map((a) => {
+    const done = !!unlockedAchievements[a.id];
+    return `<div class="ach-card ${done ? "done" : "locked"}">
+      <div class="ach-icon">${done ? a.icon : "🔒"}</div>
+      <div class="ach-name">${a.name}</div>
+      <div class="ach-desc">${a.desc}</div>
+    </div>`;
+  }).join("");
+}
+
 // Ergänzt fehlende/neue Aktien-Felder in einem geladenen Spielstand (neue
 // Aktien seit dem letzten Speichern, oder — wie localMult — Felder, die es
 // beim Speichern noch gar nicht gab).
@@ -382,6 +431,7 @@ function ensureStockFields() {
 
 function loadGame() {
   loadPrestige();
+  loadAchievements();
   try {
     const raw = localStorage.getItem(SAVE_KEY);
     if (raw) {
@@ -1125,6 +1175,7 @@ function postMessage(text, stockId, dir) {
   const followerMult = postInfluenceMultiplier() * (1 + S.viralBoost);
   text = text && text.trim() ? text.trim() : `${STOCKS.find(s=>s.id===stockId).name} macht bald was Großes! ${dir === "up" ? "📈" : "📉"}`;
   addFeedItem("Du", text, "player");
+  S.stats.postsCount = (S.stats.postsCount || 0) + 1;
   S.predictions.push({ stockId, dir, priceAtPost: S.stocks[stockId].price, postedAt: now(), expiresAt: now() + 30000, resolved: false });
 
   // Kurs-Einfluss (begrenzt auf max +/-15%, SEC-Markt-Einfluss-Limit) — wirkt
@@ -1361,6 +1412,7 @@ function sellCoins(silent) {
   if (S.coins <= 0.001) return;
   const proceeds = S.coins * S.coinPrice * (1 - feeRate());
   S.cash += proceeds;
+  S.stats.coinsSoldTotal = (S.stats.coinsSoldTotal || 0) + S.coins;
   if (!silent) { floatMoney($("btn-sell-coins"), proceeds); SND.gain(); }
   S.coins = 0;
   renderAll();
@@ -2092,11 +2144,31 @@ function doPrestige() {
 // ============================================================
 // RENDERING
 // ============================================================
+// Nur bei spürbaren Sprüngen pulsen (Trade, Dividende, Geschenk, Casino) —
+// renderHud() läuft sehr oft (z.B. jede Sekunde durch Sponsoring-Trickle),
+// bei jeder winzigen Änderung zu pulsen würde nur nervös flackern statt
+// zufriedenstellend wirken.
+let hudPulsePrev = { cash: null, nw: null };
+function pulseHudValue(el, delta, prev) {
+  if (prev === null) return;
+  const meaningful = Math.abs(delta) > 50 && Math.abs(delta) > Math.abs(prev) * 0.01;
+  if (!meaningful) return;
+  el.classList.remove("pulse-up", "pulse-down");
+  void el.offsetWidth;
+  el.classList.add(delta > 0 ? "pulse-up" : "pulse-down");
+}
 function renderHud() {
-  $("hud-cash").textContent = fmtMoney(S.cash);
-  $("hud-cash").className = "hud-value " + (S.cash >= STARTING_CASH ? "" : "");
+  const cashEl = $("hud-cash");
+  cashEl.textContent = fmtMoney(S.cash);
+  pulseHudValue(cashEl, S.cash - (hudPulsePrev.cash ?? S.cash), hudPulsePrev.cash);
+  hudPulsePrev.cash = S.cash;
+
   const nw = netWorth();
-  $("hud-networth").textContent = fmtMoney(nw);
+  const nwEl = $("hud-networth");
+  nwEl.textContent = fmtMoney(nw);
+  pulseHudValue(nwEl, nw - (hudPulsePrev.nw ?? nw), hudPulsePrev.nw);
+  hudPulsePrev.nw = nw;
+
   $("hud-followers").textContent = fmtNum(S.followers);
   $("hud-rank").textContent = rankFor(nw).name;
   if (nw > S.stats.athNetWorth) S.stats.athNetWorth = nw;
@@ -2400,6 +2472,7 @@ function renderStats() {
     ? "Du kannst jetzt in den Ruhestand gehen und permanente Boni für den nächsten Durchlauf erhalten!"
     : `Erreiche 50 Mio. € Vermögen (aktuell ${fmtMoney(nw)}), um in den Ruhestand zu gehen.`;
   $("btn-prestige").disabled = !canPrestige();
+  renderAchievements();
 }
 
 function renderAutomation() {
@@ -2730,6 +2803,7 @@ function secondTick() {
   autopilotTick();
   analyseCdTick();
   checkSponsor();
+  checkAchievements();
   renderHud();
   renderAutomation();
   // Sponsor-Einnahmen
