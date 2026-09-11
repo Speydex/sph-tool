@@ -388,6 +388,11 @@ h3 { margin: 18px 0 8px; font-size: 1rem; color: var(--text); font-family: var(-
 .casino-controls label { font-size: 0.72rem; color: var(--text-dim); display: flex; flex-direction: column; gap: 4px; }
 .casino-controls input, .casino-controls select { background: var(--bg); border: 1px solid var(--border); color: var(--text); border-radius: 8px; padding: 8px; font-family: var(--font-mono); font-variant-numeric: tabular-nums; }
 .casino-controls select { font-family: var(--font); }
+.admin-box { background: var(--card); border: 1px solid var(--gold); border-radius: var(--radius); padding: 14px; margin-top: 14px; }
+.admin-box h4 { margin-top: 0; }
+.admin-box label { font-size: 0.72rem; color: var(--text-dim); display: flex; flex-direction: column; gap: 4px; margin-bottom: 10px; max-width: 260px; }
+.admin-box input { background: var(--bg); border: 1px solid var(--border); color: var(--text); border-radius: 8px; padding: 8px; font-family: var(--font-mono); font-variant-numeric: tabular-nums; width: 100%; }
+.admin-actions { display: flex; gap: 8px; flex-wrap: wrap; }
 .casino-choice-row { display: flex; gap: 6px; flex-wrap: wrap; }
 .casino-choice { flex: 1; background: var(--bg); border: 1px solid var(--border); color: var(--text-dim); padding: 8px; border-radius: 8px; cursor: pointer; font-size: 0.8rem; font-weight: 600; min-width: 60px; }
 .casino-choice.active { background: var(--accent); color: #fff; border-color: var(--accent); }

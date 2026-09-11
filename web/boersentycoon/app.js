@@ -405,6 +405,12 @@ let cloudUser = null;
 let cloudSyncing = false;
 let cloudLastSyncedAt = 0;
 
+// Admin-Panel: nur für eingeloggte Accounts aus dieser Liste sichtbar.
+// Rein clientseitig (wie der ganze Spielstand) — keine "echte" Sicherheit,
+// blendet den Zugang für alle anderen Spieler:innen aber sauber aus.
+const ADMIN_EMAILS = ["stark.liam2011@gmail.com"];
+function isAdmin() { return !!(cloudUser && ADMIN_EMAILS.includes(cloudUser.email)); }
+
 function cloudInit() {
   if (typeof FIREBASE_CONFIGURED === "undefined" || !FIREBASE_CONFIGURED) { renderLeaderboardUnavailable(); return; }
   if (typeof firebase === "undefined") { console.warn("Firebase-SDK konnte nicht geladen werden — Cloud-Speicher deaktiviert."); renderLeaderboardUnavailable(); return; }
@@ -2387,6 +2393,13 @@ function renderAll() {
 }
 
 function renderAccountUi() {
+  const adminTabBtn = $("tab-admin-btn");
+  if (adminTabBtn) {
+    const admin = isAdmin();
+    adminTabBtn.hidden = !admin;
+    if (admin) renderAdminPanel();
+    else if (adminTabBtn.classList.contains("active")) switchTab("settings");
+  }
   const btn = $("btn-account"), box = $("account-box");
   if (!btn || !box) return;
   if (!FIREBASE_CONFIGURED) {
@@ -2425,6 +2438,69 @@ function renderAccountUi() {
   if (!cloudUser.emailVerified) $("account-resend-btn").onclick = authResendVerification;
   $("account-sync-btn").onclick = () => cloudSaveNow(false);
   $("account-logout-btn").onclick = () => authLogout();
+}
+
+// ============================================================
+// ADMIN-PANEL
+// ============================================================
+function renderAdminPanel() {
+  const grid = $("admin-rank-grid");
+  if (!grid || grid.dataset.built) return;
+  grid.dataset.built = "1";
+  grid.innerHTML = RANKS.map((r) => `<button class="btn btn-secondary" data-admin-rank="${r.min}">${r.name}</button>`).join("");
+  grid.querySelectorAll("[data-admin-rank]").forEach((b) => (b.onclick = () => adminJumpToRank(Number(b.dataset.adminRank))));
+}
+function adminSetCash() {
+  if (!isAdmin()) return;
+  const val = parseFloat($("admin-cash-input").value);
+  if (!isFinite(val)) return;
+  S.cash = val;
+  pushNotify("👑 Admin", `Kasse auf ${fmtMoney(val)} gesetzt.`);
+  renderAll();
+}
+function adminAddCash() {
+  if (!isAdmin()) return;
+  const val = parseFloat($("admin-cash-input").value);
+  if (!isFinite(val)) return;
+  S.cash += val;
+  pushNotify("👑 Admin", `${fmtMoney(val)} zur Kasse hinzugefügt.`);
+  renderAll();
+}
+function adminSetFollowers() {
+  if (!isAdmin()) return;
+  const val = Math.max(0, Math.floor(parseFloat($("admin-followers-input").value) || 0));
+  S.followers = val;
+  pushNotify("👑 Admin", `Follower auf ${fmtNum(val)} gesetzt.`);
+  renderAll();
+}
+// Setzt die Kasse gerade so hoch, dass netWorth() den Rang-Schwellenwert
+// erreicht — statt einem separaten Rang-Feld, damit auch alle anderen
+// vermögensabhängigen Freischaltungen (IPO, Prestige, Themes) konsistent
+// mitziehen.
+function adminJumpToRank(minNetWorth) {
+  if (!isAdmin()) return;
+  const otherNetWorth = netWorth() - S.cash;
+  S.cash = Math.max(S.cash, Math.ceil(minNetWorth - otherNetWorth) + 1);
+  renderAll();
+  pushNotify("👑 Admin", `Rang „${rankFor(netWorth()).name}" erreicht.`);
+}
+function adminResetSecHeat() {
+  if (!isAdmin()) return;
+  S.secHeat = 0;
+  pushNotify("👑 Admin", "SEC-Risiko zurückgesetzt.");
+  renderAll();
+}
+function adminMaxTrust() {
+  if (!isAdmin()) return;
+  S.trust = 100;
+  pushNotify("👑 Admin", "Vertrauen auf 100 gesetzt.");
+  renderAll();
+}
+function adminUnlockAllUpgrades() {
+  if (!isAdmin()) return;
+  Object.values(UPGRADES).forEach((cat) => cat.forEach((u) => { S.upgrades[u.id] = u.max || 1; }));
+  pushNotify("👑 Admin", "Alle Upgrades freigeschaltet.");
+  renderAll();
 }
 
 function openAuthModal(initialTab) {
@@ -2606,6 +2682,13 @@ function initEventListeners() {
   });
   $("btn-prestige").addEventListener("click", doPrestige);
   $("btn-account").addEventListener("click", () => { cloudUser ? switchTab("settings") : openAuthModal("login"); });
+
+  $("admin-cash-set").addEventListener("click", adminSetCash);
+  $("admin-cash-add").addEventListener("click", adminAddCash);
+  $("admin-followers-set").addEventListener("click", adminSetFollowers);
+  $("admin-sec-reset").addEventListener("click", adminResetSecHeat);
+  $("admin-trust-max").addEventListener("click", adminMaxTrust);
+  $("admin-unlock-all").addEventListener("click", adminUnlockAllUpgrades);
 
   // Logo Picker
   const logos = ["🏢", "🚀", "🦅", "🐉", "💎", "🌐", "⚡", "🏆"];
