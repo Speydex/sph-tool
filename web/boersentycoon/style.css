@@ -393,6 +393,9 @@ h3 { margin: 18px 0 8px; font-size: 1rem; color: var(--text); font-family: var(-
 .admin-box label { font-size: 0.72rem; color: var(--text-dim); display: flex; flex-direction: column; gap: 4px; margin-bottom: 10px; max-width: 260px; }
 .admin-box input { background: var(--bg); border: 1px solid var(--border); color: var(--text); border-radius: 8px; padding: 8px; font-family: var(--font-mono); font-variant-numeric: tabular-nums; width: 100%; }
 .admin-actions { display: flex; gap: 8px; flex-wrap: wrap; }
+.admin-gift-row { display: flex; align-items: center; justify-content: space-between; gap: 10px; padding: 8px 0; border-bottom: 1px solid var(--border); }
+.admin-gift-row:last-child { border-bottom: none; }
+.admin-gift-email { font-family: var(--font-mono); font-size: 0.82rem; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .casino-choice-row { display: flex; gap: 6px; flex-wrap: wrap; }
 .casino-choice { flex: 1; background: var(--bg); border: 1px solid var(--border); color: var(--text-dim); padding: 8px; border-radius: 8px; cursor: pointer; font-size: 0.8rem; font-weight: 600; min-width: 60px; }
 .casino-choice.active { background: var(--accent); color: #fff; border-color: var(--accent); }

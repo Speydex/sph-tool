@@ -472,10 +472,40 @@ function renderLeaderboardRulesOutdated() {
   if (el) el.innerHTML = '<p class="hint">Bestenliste konnte nicht geladen werden. Das liegt fast immer an veralteten Firestore-Regeln — prüfe, ob der aktuelle Inhalt aus <code>firestore.rules</code> in der Firebase-Konsole unter „Regeln" veröffentlicht ist.</p>';
 }
 
+// ---- Spieler-Registrierung (für den Admin: "wer hat schon eingeloggt?")
+// und eingehende Geld-Geschenke vom Admin. ----
+function syncPlayerRegistry() {
+  if (!fbDb || !cloudUser) return;
+  fbDb.collection("players").doc(cloudUser.uid).set({
+    email: cloudUser.email,
+    lastSeenMs: now(),
+  }).catch(() => {});
+}
+let giftUnsub = null;
+function initGiftListener() {
+  if (!fbDb || !cloudUser) return;
+  if (giftUnsub) { giftUnsub(); giftUnsub = null; }
+  giftUnsub = fbDb.collection("gifts").where("toUid", "==", cloudUser.uid).onSnapshot((snap) => {
+    snap.forEach((doc) => {
+      const g = doc.data();
+      const amt = Number(g.amount) || 0;
+      if (amt > 0) {
+        S.cash += amt;
+        pushNotify("🎁 Geschenk erhalten!", `Du hast ${fmtMoney(amt)} vom Admin bekommen!`, "jackpot");
+        spawnConfetti(80);
+        renderAll();
+        saveGame();
+      }
+      doc.ref.delete().catch(() => {});
+    });
+  }, () => {});
+}
+
 function onCloudAuthChanged(user) {
   cloudUser = user;
   renderAccountUi();
-  if (user) resolveCloudOnLogin();
+  if (user) { resolveCloudOnLogin(); syncPlayerRegistry(); initGiftListener(); }
+  else if (giftUnsub) { giftUnsub(); giftUnsub = null; }
 }
 
 async function resolveCloudOnLogin() {
@@ -2445,10 +2475,12 @@ function renderAccountUi() {
 // ============================================================
 function renderAdminPanel() {
   const grid = $("admin-rank-grid");
-  if (!grid || grid.dataset.built) return;
-  grid.dataset.built = "1";
-  grid.innerHTML = RANKS.map((r) => `<button class="btn btn-secondary" data-admin-rank="${r.min}">${r.name}</button>`).join("");
-  grid.querySelectorAll("[data-admin-rank]").forEach((b) => (b.onclick = () => adminJumpToRank(Number(b.dataset.adminRank))));
+  if (grid && !grid.dataset.built) {
+    grid.dataset.built = "1";
+    grid.innerHTML = RANKS.map((r) => `<button class="btn btn-secondary" data-admin-rank="${r.min}">${r.name}</button>`).join("");
+    grid.querySelectorAll("[data-admin-rank]").forEach((b) => (b.onclick = () => adminJumpToRank(Number(b.dataset.adminRank))));
+  }
+  initAdminPlayerList();
 }
 function adminSetCash() {
   if (!isAdmin()) return;
@@ -2501,6 +2533,49 @@ function adminUnlockAllUpgrades() {
   Object.values(UPGRADES).forEach((cat) => cat.forEach((u) => { S.upgrades[u.id] = u.max || 1; }));
   pushNotify("👑 Admin", "Alle Upgrades freigeschaltet.");
   renderAll();
+}
+
+// Geld an andere Spieler:innen senden — die "players"-Collection listet
+// alle, die sich je eingeloggt haben (nur für den Admin lesbar), ein Klick
+// auf "Senden" legt ein Geschenk-Dokument an, das die Ziel-Person über
+// initGiftListener() automatisch abholt, sobald sie online ist.
+let adminPlayersUnsub = null;
+function initAdminPlayerList() {
+  if (!fbDb || !isAdmin() || adminPlayersUnsub) return;
+  adminPlayersUnsub = fbDb.collection("players").onSnapshot(
+    (snap) => {
+      const rows = [];
+      snap.forEach((doc) => { if (doc.id !== cloudUser.uid) rows.push(Object.assign({ uid: doc.id }, doc.data())); });
+      rows.sort((a, b) => (b.lastSeenMs || 0) - (a.lastSeenMs || 0));
+      renderAdminGiftList(rows);
+    },
+    () => {
+      const el = $("admin-gift-players");
+      if (el) el.innerHTML = '<p class="hint">Spielerliste konnte nicht geladen werden. Das liegt fast immer an veralteten Firestore-Regeln — prüfe, ob der aktuelle Inhalt aus <code>firestore.rules</code> in der Firebase-Konsole veröffentlicht ist.</p>';
+    }
+  );
+}
+function renderAdminGiftList(rows) {
+  const el = $("admin-gift-players");
+  if (!el) return;
+  if (!rows.length) { el.innerHTML = '<p class="hint">Noch keine anderen Spieler:innen gefunden — sie müssen sich mindestens einmal eingeloggt haben.</p>'; return; }
+  el.innerHTML = rows.map((r) => `
+    <div class="admin-gift-row">
+      <span class="admin-gift-email">${r.email || "?"}</span>
+      <button class="btn btn-primary" data-gift-uid="${r.uid}">Senden</button>
+    </div>`).join("");
+  el.querySelectorAll("[data-gift-uid]").forEach((b) => (b.onclick = () => adminSendGift(b.dataset.giftUid, b)));
+}
+function adminSendGift(toUid, btnEl) {
+  if (!isAdmin() || !fbDb) return;
+  const amount = parseFloat($("admin-gift-amount").value);
+  if (!isFinite(amount) || amount <= 0) { pushNotify("⚠️ Ungültiger Betrag", "Bitte zuerst einen Betrag eingeben.", "denied"); return; }
+  fbDb.collection("gifts").add({ toUid, amount, fromEmail: cloudUser.email, createdAt: now() })
+    .then(() => {
+      pushNotify("🎁 Gesendet!", `${fmtMoney(amount)} ist unterwegs — kommt an, sobald die Person online ist.`);
+      if (btnEl) floatMoney(btnEl, -amount);
+    })
+    .catch(() => pushNotify("⚠️ Fehler beim Senden", "Prüfe, ob die aktuellen Firestore-Regeln veröffentlicht sind.", "denied"));
 }
 
 function openAuthModal(initialTab) {
