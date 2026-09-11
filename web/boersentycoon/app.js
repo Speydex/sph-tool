@@ -28,6 +28,13 @@ function fmtNum(n) {
   return "" + n;
 }
 function pct(n) { return (n >= 0 ? "+" : "") + (n * 100).toFixed(2) + "%"; }
+// Muss auf jeden Freitext angewendet werden, der von einem/einer ANDEREN
+// Spieler*in stammt und per innerHTML gerendert wird (z.B. Spielernamen in
+// der Bestenliste) — sonst wäre ein frei wählbarer Name ein Einfallstor
+// für gespeichertes XSS gegen alle, die die Bestenliste öffnen.
+function escapeHtml(str) {
+  return String(str).replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
+}
 
 // ============================================================
 // GEMEINSAMER MARKT — deterministisch aus der Wanduhrzeit berechnet
@@ -319,6 +326,7 @@ function freshState() {
   const coinPrice = sharedCoinPrice(seedTick);
   return {
     cash: STARTING_CASH,
+    playerName: "",
     stocks,
     portfolio: {}, // id -> {shares, avgPrice, short, shortAvg}
     followers: 50, trust: 50, verified: false,
@@ -424,14 +432,21 @@ function cloudInit() {
 }
 
 // ---- Bestenliste (öffentlich lesbar, jede*r schreibt nur den eigenen Eintrag) ----
+// Vor dem frei wählbaren Spielernamen (siehe Optionen-Tab) gab es hier nur
+// den auf 3 Zeichen+*** verkürzten E-Mail-Präfix — jetzt nur noch als
+// Rückfalloption, falls jemand (noch) keinen eigenen Namen gesetzt hat.
 function leaderboardName(email) {
   const prefix = (email || "Spieler").split("@")[0];
   return (prefix.length > 3 ? prefix.slice(0, 3) : prefix) + "***";
 }
+function displayName() {
+  const n = (S.playerName || "").trim();
+  return n ? n.slice(0, 24) : leaderboardName(cloudUser && cloudUser.email);
+}
 function syncLeaderboard() {
   if (!fbDb || !cloudUser) return;
   fbDb.collection("leaderboard").doc(cloudUser.uid).set({
-    name: leaderboardName(cloudUser.email),
+    name: displayName(),
     netWorth: netWorth(),
     rank: rankFor(netWorth()).name,
     updatedAtMs: now(),
@@ -456,7 +471,7 @@ function renderLeaderboard(rows) {
   el.innerHTML = rows.map((r, i) => `
     <div class="lb-row ${cloudUser && r.uid === cloudUser.uid ? "me" : ""}">
       <span class="lb-rank">${medals[i] || "#" + (i + 1)}</span>
-      <span class="lb-name-wrap"><span class="lb-name">${r.name || "Spieler"}</span><span class="lb-title">${r.rank || ""}</span></span>
+      <span class="lb-name-wrap"><span class="lb-name">${escapeHtml(r.name || "Spieler")}</span><span class="lb-title">${escapeHtml(r.rank || "")}</span></span>
       <span class="lb-worth">${fmtMoney(r.netWorth || 0)}</span>
     </div>`).join("");
 }
@@ -478,6 +493,7 @@ function syncPlayerRegistry() {
   if (!fbDb || !cloudUser) return;
   fbDb.collection("players").doc(cloudUser.uid).set({
     email: cloudUser.email,
+    name: displayName(),
     lastSeenMs: now(),
   }).catch(() => {});
 }
@@ -503,6 +519,7 @@ function initGiftListener() {
 
 function onCloudAuthChanged(user) {
   cloudUser = user;
+  if (user && !(S.playerName || "").trim()) S.playerName = (user.email || "Spieler").split("@")[0];
   renderAccountUi();
   if (user) { resolveCloudOnLogin(); syncPlayerRegistry(); initGiftListener(); }
   else if (giftUnsub) { giftUnsub(); giftUnsub = null; }
@@ -2422,7 +2439,19 @@ function renderAll() {
   renderAccountUi();
 }
 
+function savePlayerName() {
+  const input = $("player-name-input");
+  const name = (input.value || "").trim().slice(0, 24);
+  S.playerName = name;
+  input.value = name;
+  saveGame();
+  if (cloudUser) { syncLeaderboard(); syncPlayerRegistry(); }
+  pushNotify("🏷️ Name gespeichert", name ? `Du heißt jetzt „${name}" in der Bestenliste.` : "Name entfernt.");
+}
+
 function renderAccountUi() {
+  const nameInput = $("player-name-input");
+  if (nameInput && document.activeElement !== nameInput) nameInput.value = S.playerName || "";
   const adminTabBtn = $("tab-admin-btn");
   if (adminTabBtn) {
     const admin = isAdmin();
@@ -2540,40 +2569,45 @@ function adminUnlockAllUpgrades() {
 // auf "Senden" legt ein Geschenk-Dokument an, das die Ziel-Person über
 // initGiftListener() automatisch abholt, sobald sie online ist.
 let adminPlayersUnsub = null;
+let adminKnownPlayers = [];
 function initAdminPlayerList() {
   if (!fbDb || !isAdmin() || adminPlayersUnsub) return;
   adminPlayersUnsub = fbDb.collection("players").onSnapshot(
     (snap) => {
       const rows = [];
       snap.forEach((doc) => { if (doc.id !== cloudUser.uid) rows.push(Object.assign({ uid: doc.id }, doc.data())); });
-      rows.sort((a, b) => (b.lastSeenMs || 0) - (a.lastSeenMs || 0));
+      rows.sort((a, b) => (a.name || "").localeCompare(b.name || ""));
+      adminKnownPlayers = rows;
       renderAdminGiftList(rows);
     },
     () => {
+      adminKnownPlayers = [];
       const el = $("admin-gift-players");
       if (el) el.innerHTML = '<p class="hint">Spielerliste konnte nicht geladen werden. Das liegt fast immer an veralteten Firestore-Regeln — prüfe, ob der aktuelle Inhalt aus <code>firestore.rules</code> in der Firebase-Konsole veröffentlicht ist.</p>';
     }
   );
 }
+// Nur eine Referenz-Anzeige der bekannten Namen (Klartext, keine Buttons) —
+// der eigentliche Versand läuft über das Namensfeld in adminSendGift().
 function renderAdminGiftList(rows) {
   const el = $("admin-gift-players");
   if (!el) return;
-  if (!rows.length) { el.innerHTML = '<p class="hint">Noch keine anderen Spieler:innen gefunden — sie müssen sich mindestens einmal eingeloggt haben.</p>'; return; }
-  el.innerHTML = rows.map((r) => `
-    <div class="admin-gift-row">
-      <span class="admin-gift-email">${r.email || "?"}</span>
-      <button class="btn btn-primary" data-gift-uid="${r.uid}">Senden</button>
-    </div>`).join("");
-  el.querySelectorAll("[data-gift-uid]").forEach((b) => (b.onclick = () => adminSendGift(b.dataset.giftUid, b)));
+  if (!rows.length) { el.textContent = "Noch keine anderen Spieler:innen gefunden — sie müssen sich mindestens einmal eingeloggt haben."; return; }
+  el.textContent = "Bekannte Namen: " + rows.map((r) => r.name || "?").join(", ");
 }
-function adminSendGift(toUid, btnEl) {
+function adminSendGift() {
   if (!isAdmin() || !fbDb) return;
+  const name = ($("admin-gift-name").value || "").trim();
   const amount = parseFloat($("admin-gift-amount").value);
-  if (!isFinite(amount) || amount <= 0) { pushNotify("⚠️ Ungültiger Betrag", "Bitte zuerst einen Betrag eingeben.", "denied"); return; }
-  fbDb.collection("gifts").add({ toUid, amount, fromEmail: cloudUser.email, createdAt: now() })
+  if (!name) { pushNotify("⚠️ Kein Name", "Bitte zuerst einen Namen eingeben.", "denied"); return; }
+  if (!isFinite(amount) || amount <= 0) { pushNotify("⚠️ Ungültiger Betrag", "Bitte einen Betrag eingeben.", "denied"); return; }
+  const matches = adminKnownPlayers.filter((p) => (p.name || "").trim().toLowerCase() === name.toLowerCase());
+  if (!matches.length) { pushNotify("⚠️ Nicht gefunden", `Niemand mit dem Namen „${name}" gefunden. Muss exakt wie im Spiel gewählt sein.`, "denied"); return; }
+  if (matches.length > 1) { pushNotify("⚠️ Mehrdeutig", `Mehrere Spieler:innen heißen „${name}" — nicht eindeutig.`, "denied"); return; }
+  fbDb.collection("gifts").add({ toUid: matches[0].uid, amount, fromEmail: cloudUser.email, createdAt: now() })
     .then(() => {
-      pushNotify("🎁 Gesendet!", `${fmtMoney(amount)} ist unterwegs — kommt an, sobald die Person online ist.`);
-      if (btnEl) floatMoney(btnEl, -amount);
+      pushNotify("🎁 Gesendet!", `${fmtMoney(amount)} an ${name} ist unterwegs — kommt an, sobald die Person online ist.`);
+      $("admin-gift-name").value = "";
     })
     .catch(() => pushNotify("⚠️ Fehler beim Senden", "Prüfe, ob die aktuellen Firestore-Regeln veröffentlicht sind.", "denied"));
 }
@@ -2749,6 +2783,8 @@ function initEventListeners() {
   $("chk-sound").addEventListener("change", (e) => {
     if (e.target.checked) { S.soundOn = true; SND.toggle(); } else { SND.toggle(); S.soundOn = false; }
   });
+  $("player-name-save").addEventListener("click", savePlayerName);
+  $("player-name-input").addEventListener("keydown", (e) => { if (e.key === "Enter") savePlayerName(); });
   $("btn-reset").addEventListener("click", () => {
     if (confirm("Wirklich den kompletten Spielstand löschen?")) {
       localStorage.removeItem(SAVE_KEY);
@@ -2761,6 +2797,7 @@ function initEventListeners() {
   $("admin-cash-set").addEventListener("click", adminSetCash);
   $("admin-cash-add").addEventListener("click", adminAddCash);
   $("admin-followers-set").addEventListener("click", adminSetFollowers);
+  $("admin-gift-send").addEventListener("click", adminSendGift);
   $("admin-sec-reset").addEventListener("click", adminResetSecHeat);
   $("admin-trust-max").addEventListener("click", adminMaxTrust);
   $("admin-unlock-all").addEventListener("click", adminUnlockAllUpgrades);
