@@ -277,3 +277,34 @@ const THEMES = [
 ];
 
 const STARTING_CASH = 1000;
+
+// Erfolge — bleiben (anders als der Spielstand) über einen Ruhestand
+// hinweg dauerhaft freigeschaltet. check(s) bekommt den aktuellen
+// Spielstand S und liest ausschließlich, nie verändern.
+const ACHIEVEMENTS = [
+  { id: "first_trade", icon: "📈", name: "Erster Trade", desc: "Kaufe oder verkaufe deine erste Aktie.", check: (s) => s.stats.totalTrades >= 1, reward: { cash: 1000 } },
+  { id: "trader_100", icon: "🔁", name: "Aktiver Trader", desc: "100 Trades abgeschlossen.", check: (s) => s.stats.totalTrades >= 100, reward: { cash: 10000 } },
+  { id: "trader_1000", icon: "💼", name: "Trading-Veteran", desc: "1.000 Trades abgeschlossen.", check: (s) => s.stats.totalTrades >= 1000, reward: { cash: 100000 } },
+  { id: "big_win", icon: "💰", name: "Erster großer Gewinn", desc: "50.000 € in einem einzigen Trade gewinnen.", check: (s) => s.stats.biggestWin >= 50000, reward: { cash: 5000 } },
+  { id: "diversified", icon: "🌈", name: "Diversifiziert", desc: "Aktien aus allen Unternehmen gleichzeitig halten.", check: (s) => STOCKS.every((st) => (s.portfolio[st.id] || {}).shares > 0), reward: { cash: 20000 } },
+  { id: "net_10k", icon: "🪙", name: "Erste 10.000 €", desc: "Erreiche 10.000 € Vermögen.", check: (s) => netWorth() >= 10000, reward: { cash: 1000 } },
+  { id: "net_100k", icon: "💵", name: "Erste 100.000 €", desc: "Erreiche 100.000 € Vermögen.", check: (s) => netWorth() >= 100000, reward: { cash: 10000 } },
+  { id: "net_1m", icon: "💎", name: "Erste Million", desc: "Erreiche 1 Million € Vermögen.", check: (s) => netWorth() >= 1000000, reward: { cash: 50000 } },
+  { id: "net_10m", icon: "🏦", name: "Zehn Millionen", desc: "Erreiche 10 Millionen € Vermögen.", check: (s) => netWorth() >= 10000000, reward: { cash: 250000 } },
+  { id: "net_100m", icon: "👑", name: "Hundert Millionen", desc: "Erreiche 100 Millionen € Vermögen.", check: (s) => netWorth() >= 100000000, reward: { cash: 1000000 } },
+  { id: "first_post", icon: "📱", name: "Erster Post", desc: "Poste deine erste Kurs-Vorhersage.", check: (s) => s.stats.postsCount >= 1, reward: { followers: 200 } },
+  { id: "influencer", icon: "📢", name: "Influencer", desc: "Erreiche 10.000 Follower.", check: (s) => s.followers >= 10000, reward: { cash: 50000 } },
+  { id: "verified", icon: "✔️", name: "Verifiziert", desc: "Erhalte den blauen Haken.", check: (s) => s.verified, reward: { cash: 100000 } },
+  { id: "mega_star", icon: "🌟", name: "Mega-Star", desc: "Erreiche 100.000 Follower.", check: (s) => s.followers >= 100000, reward: { cash: 500000 } },
+  { id: "first_rig", icon: "⛏️", name: "Erstes Rig", desc: "Kaufe dein erstes Mining-Rig.", check: (s) => s.rigs.length >= 1, reward: { cash: 500 } },
+  { id: "mining_empire", icon: "🏭", name: "Mining-Imperium", desc: "Besitze 10 Mining-Rigs gleichzeitig.", check: (s) => s.rigs.length >= 10, reward: { cash: 50000 } },
+  { id: "crypto_trader", icon: "🪙", name: "Krypto-Händler", desc: "Verkaufe insgesamt 100 geminte Coins.", check: (s) => s.stats.coinsSoldTotal >= 100, reward: { cash: 10000 } },
+  { id: "moved_out", icon: "🏙️", name: "Umzug", desc: "Verlasse das Garagen-Büro.", check: (s) => s.estateIndex >= 1, reward: { cash: 10000 } },
+  { id: "private_island", icon: "🏝️", name: "Privatinsel", desc: "Beziehe die Privatinsel.", check: (s) => s.estateIndex >= 3, reward: { cash: 500000 } },
+  { id: "ipo_founded", icon: "🏛️", name: "Börsengang", desc: "Gründe deine eigene Aktiengesellschaft.", check: (s) => s.ipo.founded, reward: { cash: 100000 } },
+  { id: "ipo_hq", icon: "🏢", name: "Eigene Zentrale", desc: "Schalte das Unternehmens-Hauptquartier frei.", check: (s) => s.ipo.hqUnlocked, reward: { cash: 500000 } },
+  { id: "jackpot", icon: "🎰", name: "Großer Jackpot", desc: "Gewinne 200.000 € in einem einzigen Gewinn (z.B. im Casino).", check: (s) => s.stats.biggestWin >= 200000, reward: { cash: 20000 } },
+  { id: "big_loss", icon: "😅", name: "Rückschlag weggesteckt", desc: "Verliere 50.000 € in einem einzigen Trade — und mach trotzdem weiter.", check: (s) => s.stats.biggestLoss <= -50000, reward: { cash: 10000 } },
+  { id: "first_prestige", icon: "♻️", name: "Erster Ruhestand", desc: "Gehe zum ersten Mal in den Ruhestand.", check: () => PRESTIGE.count >= 1, reward: { cash: 10000 } },
+  { id: "serial_prestige", icon: "🔄", name: "Serien-Unternehmer", desc: "Gehe 5 Mal in den Ruhestand.", check: () => PRESTIGE.count >= 5, reward: { cash: 100000 } },
+];
