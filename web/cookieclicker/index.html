@@ -1,0 +1,102 @@
+<!DOCTYPE html>
+<html lang="de">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Keks-Klicker</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Baloo+2:wght@500;600;700;800&family=Nunito:wght@400;600;700;800&display=swap">
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+
+<div id="float-layer" class="float-layer"></div>
+<div id="toast-stack" class="toast-stack"></div>
+
+<div class="app" id="app">
+
+  <header class="topbar">
+    <div class="brand">
+      <span class="brand-icon">🍪</span>
+      <span class="brand-name">Keks<span class="accent">Klicker</span></span>
+    </div>
+    <div class="hud">
+      <div class="hud-item">
+        <span class="hud-label">Kekse</span>
+        <span class="hud-value" id="hud-cookies">0</span>
+      </div>
+      <div class="hud-item">
+        <span class="hud-label">pro Sekunde</span>
+        <span class="hud-value" id="hud-cps">0</span>
+      </div>
+      <div class="hud-item">
+        <span class="hud-label">pro Klick</span>
+        <span class="hud-value" id="hud-click">1</span>
+      </div>
+    </div>
+    <div class="topbar-actions">
+      <button id="btn-sound" class="btn-icon" title="Sound an/aus">🔊</button>
+      <button id="btn-reset" class="btn-icon" title="Spielstand zurücksetzen">🗑️</button>
+    </div>
+  </header>
+
+  <div class="buff-row" id="buff-row"></div>
+
+  <main class="layout">
+
+    <!-- ================= KEKS-BEREICH ================= -->
+    <section class="cookie-area" id="cookie-area">
+      <div class="cookie-stage" id="cookie-stage">
+        <button class="big-cookie" id="big-cookie" aria-label="Keks anklicken">
+          <span class="cookie-face">
+            <span class="chip c1"></span><span class="chip c2"></span><span class="chip c3"></span>
+            <span class="chip c4"></span><span class="chip c5"></span><span class="chip c6"></span>
+            <span class="chip c7"></span><span class="chip c8"></span><span class="chip c9"></span>
+          </span>
+        </button>
+      </div>
+      <p class="hint">Klicke den Keks — oder warte auf goldene Kekse für fette Boni.</p>
+    </section>
+
+    <!-- ================= PANEL ================= -->
+    <section class="panel-wrap">
+      <nav class="tabs" id="tabs">
+        <button class="tab-btn active" data-tab="shop">🛒 Laden</button>
+        <button class="tab-btn" data-tab="upgrades">⭐ Verbesserungen <span class="badge" id="upgrade-badge" hidden>0</span></button>
+        <button class="tab-btn" data-tab="achievements">🏆 Erfolge <span class="ach-count" id="ach-count"></span></button>
+        <button class="tab-btn" data-tab="stats">📊 Statistik</button>
+      </nav>
+
+      <div class="tab-panels">
+        <section class="tab-panel active" id="panel-shop">
+          <div class="buy-amount-row">
+            <span class="buy-label">Kaufmenge:</span>
+            <button class="buy-amount-btn active" data-amount="1">1x</button>
+            <button class="buy-amount-btn" data-amount="10">10x</button>
+            <button class="buy-amount-btn" data-amount="100">100x</button>
+          </div>
+          <div class="shop-list" id="shop-list"></div>
+        </section>
+
+        <section class="tab-panel" id="panel-upgrades">
+          <div class="upgrade-list" id="upgrade-list"></div>
+          <p class="hint" id="upgrade-hidden-hint"></p>
+        </section>
+
+        <section class="tab-panel" id="panel-achievements">
+          <div class="achievements-grid" id="achievements-grid"></div>
+        </section>
+
+        <section class="tab-panel" id="panel-stats">
+          <div class="stats-grid" id="stats-grid"></div>
+        </section>
+      </div>
+    </section>
+
+  </main>
+</div>
+
+<script src="app.js"></script>
+</body>
+</html>
