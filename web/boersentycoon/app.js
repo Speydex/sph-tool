@@ -39,7 +39,11 @@ function pct(n) { return (n >= 0 ? "+" : "") + (n * 100).toFixed(2) + "%"; }
 // Insider-Infos, Overclock, ...) wirken zusätzlich nur lokal über
 // st.localMult, damit sie den geteilten Kurs nicht für alle verfälschen.
 const MARKET_TICK_MS = 1500;
-const MARKET_EPOCH = 1893456000000; // fester Referenzpunkt, für alle Geräte identisch
+// Fester Referenzpunkt, für alle Geräte identisch — MUSS in der
+// Vergangenheit liegen: die Regime-Ebene (siehe unten) läuft als echte
+// Zufallslauf-Rekursion ab Epoche 0 und bräche für negative Tick-Indizes
+// (Referenzpunkt in der Zukunft) einfach ab, ohne Crashes zu erzeugen.
+const MARKET_EPOCH = 1704067200000; // 2024-01-01T00:00:00Z
 
 function marketTickIndex(t) { return Math.floor((t - MARKET_EPOCH) / MARKET_TICK_MS); }
 
@@ -76,11 +80,103 @@ function fbmNoise(seed, x, octaves) {
   return total / norm;
 }
 
+// Regime-Ebene: seltene, aber heftige und vor allem DAUERHAFTE Crashes/
+// Booms pro Aktie — im Gegensatz zum Flash-Crash (kurzer, marktweiter
+// Schreck, der immer wieder verschwindet) bleibt ein Regime-Crash bestehen
+// und erholt sich, wenn überhaupt, nur langsam über viele weitere Epochen.
+// Echte, sequenzielle Zufallslauf-Rekursion (jede Epoche hängt von der
+// vorigen ab) statt einer geschlossenen Formel — aber Epochen sind mit 40
+// Minuten grob genug, dass selbst nach einem Jahr Laufzeit nur ~13.000
+// Schritte anfallen (Bruchteil einer Millisekunde), und ein kleiner
+// Fenster-Cache macht wiederholte Abfragen nahe der aktuellen Zeit O(1).
+const REGIME_EPOCH_TICKS = Math.round((40 * 60000) / MARKET_TICK_MS);
+const REGIME_DECAY = 0.985;
+function regimeStep(seed, vol, drift, e, level) {
+  const r = detRand(seed + ":roll", e);
+  const crashChance = 0.014 + vol * 0.3;
+  const boomChance = 0.008 + vol * 0.16;
+  let step = (detRand(seed + ":wobble", e) * 2 - 1) * (0.025 + vol * 0.4) + drift * 20;
+  if (r < crashChance) {
+    // Crashes schlagen härter und schneller zu als Booms sich aufbauen —
+    // Angst wirkt stärker als Gier, wie an echten Märkten.
+    step -= detRange(seed + ":crashmag", e, 0.45, 1.05) * (0.65 + vol * 6.5);
+  } else if (r > 1 - boomChance) {
+    step += detRange(seed + ":boommag", e, 0.25, 0.55) * (0.6 + vol * 5);
+  }
+  return level * REGIME_DECAY + step;
+}
+// regimeSignal() needs two adjacent epochs (i and i+1) each call, and a
+// fresh player's history/ATH seed additionally scans a couple of nearby
+// epochs from both ends (see freshState()). A small fixed-size ring buffer
+// of recently-touched epochs covers all of that without ever growing or
+// shrinking an object's key set — deliberately NOT a {epoch: level} map
+// pruned with `delete`: repeatedly adding/deleting object keys tips V8
+// into slow "dictionary mode" for that object, which (measured) made an
+// earlier version of this ~500x slower. A plain fixed-length array, only
+// ever written by index, keeps a stable shape forever.
+//
+// REGIME_DECAY < 1 means older epochs contribute geometrically less to the
+// current level (0.985^550 < 0.0003) — so a cold start (or a big backward
+// jump) never needs to replay all the way from epoch 0. That epoch count
+// only grows with real time since MARKET_EPOCH, which would otherwise make
+// the very first price computation of a session slower every year. Instead
+// truncate the replay to the last REGIME_LOOKBACK_EPOCHS and start from
+// level 0 there — the true value's contribution from before that point has
+// already decayed to nothing, so the approximation error is negligible.
+const REGIME_LOOKBACK_EPOCHS = 550;
+const REGIME_CACHE_SLOTS = 8;
+const regimeCache = {};
+function regimeLevelAtEpoch(seed, vol, drift, epochIdx) {
+  let cache = regimeCache[seed];
+  if (!cache) {
+    cache = regimeCache[seed] = {
+      epochs: new Array(REGIME_CACHE_SLOTS).fill(-1),
+      values: new Array(REGIME_CACHE_SLOTS).fill(0),
+      next: 0, maxEpoch: -1, maxValue: 0,
+    };
+  }
+  for (let i = 0; i < REGIME_CACHE_SLOTS; i++) if (cache.epochs[i] === epochIdx) return cache.values[i];
+
+  let level, startE;
+  if (epochIdx > cache.maxEpoch && epochIdx - cache.maxEpoch <= REGIME_LOOKBACK_EPOCHS) {
+    level = cache.maxValue;
+    startE = cache.maxEpoch + 1;
+  } else {
+    // Rückwärts-/Lücken-Abfrage, oder ein Vorwärts-Sprung, der weiter als
+    // das Lookback-Fenster vom bisher bekannten Stand entfernt ist (z.B.
+    // der allererste Aufruf für diese Aktie) — auf das Lookback-Fenster
+    // begrenzte Neuberechnung statt bis Epoche 0 zurückzulaufen.
+    level = 0;
+    startE = Math.max(0, epochIdx - REGIME_LOOKBACK_EPOCHS);
+  }
+  for (let e = startE; e <= epochIdx; e++) {
+    level = regimeStep(seed, vol, drift, e, level);
+    cache.epochs[cache.next] = e;
+    cache.values[cache.next] = level;
+    cache.next = (cache.next + 1) % REGIME_CACHE_SLOTS;
+  }
+  if (epochIdx > cache.maxEpoch) { cache.maxEpoch = epochIdx; cache.maxValue = level; }
+  return level;
+}
+// Sanfter, aber vergleichsweise ZÜGIGER Übergang in den neuen Epochen-Wert
+// (der Großteil der Bewegung passiert in den ersten ~15% der Epoche), damit
+// sich ein Crash wie "gerade eben passiert" anfühlt statt wie ein 40-
+// minütiges Verblassen.
+function regimeSignal(seed, vol, drift, tickIndex) {
+  const x = tickIndex / REGIME_EPOCH_TICKS;
+  const i = Math.floor(x), f = x - i;
+  const a = regimeLevelAtEpoch(seed, vol, drift, i);
+  const b = regimeLevelAtEpoch(seed, vol, drift, i + 1);
+  const uRaw = Math.min(1, f / 0.18);
+  const u = uRaw * uRaw * (3 - 2 * uRaw);
+  return a + u * (b - a);
+}
+
 function sharedStockLogReturn(cfg, tickIndex) {
-  const regime = fbmNoise(cfg.id + ":regime", tickIndex / 4200, 3) + cfg.drift * 380;
+  const regime = regimeSignal(cfg.id, cfg.vol, cfg.drift, tickIndex);
   const macro = fbmNoise(cfg.id + ":macro", tickIndex / 260, 3);
   const micro = fbmNoise(cfg.id + ":micro", tickIndex / 11, 2);
-  return cfg.vol * (regime * 8.5 + macro * 4.5 + micro * 1.6);
+  return regime + cfg.vol * (macro * 3.2 + micro * 1.6);
 }
 
 // Deterministischer Flash-Crash: ca. alle 15-20 Minuten für 20-30s, betrifft alle Aktien.
@@ -164,10 +260,12 @@ function sharedStockPrice(cfg, tickIndex) {
 
 // Gemeinsamer Krypto-Coin-Kurs, gleiches Prinzip wie oben.
 function sharedCoinPrice(tickIndex) {
+  const coinVol = 0.07, coinDrift = 0.0005; // Krypto: mindestens so crash-/boomfreudig wie die volatilsten Aktien
+  const regime = regimeSignal("coin", coinVol, coinDrift, tickIndex);
   const macro = fbmNoise("coin:macro", tickIndex / 200, 3);
   const micro = fbmNoise("coin:micro", tickIndex / 9, 2);
-  const logDelta = macro * 0.5 + micro * 0.22;
-  return clamp(COIN_PRICE_BASE * Math.exp(logDelta), COIN_PRICE_BASE * 0.3, COIN_PRICE_BASE * 8);
+  const logDelta = regime + coinVol * (macro * 3.2 + micro * 1.6);
+  return clamp(COIN_PRICE_BASE * Math.exp(logDelta), COIN_PRICE_BASE * 0.04, COIN_PRICE_BASE * 15);
 }
 
 // Wendet einen rein persönlichen Kurs-Effekt an (Social-Post, Insider-Tipp,
@@ -195,9 +293,22 @@ function freshState() {
   const seedTick = marketTickIndex(now());
   STOCKS.forEach((s) => {
     const history = [];
-    for (let i = 29; i >= 0; i--) history.push(sharedStockPrice(s, seedTick - i));
     let ath = s.base;
-    for (let i = 0; i < 2000; i += 8) { const p = sharedStockPrice(s, seedTick - i); if (p > ath) ath = p; }
+    // Ein einziger Scan VORWÄRTS in der Zeit (älteste zuerst) für beide
+    // Bedarfe zugleich: grobe Stichprobe über 2000 Ticks für die ATH-
+    // Schätzung, plus jeden einzelnen der letzten 30 Ticks für den Chart.
+    // Wichtig, dass hier vorwärts statt rückwärts gescannt wird — die
+    // Regime-Ebene cached nur den zuletzt erreichten Zeitpunkt, ein
+    // rückwärts springender Scan würde bei jeder älteren Stichprobe erneut
+    // (teuer) neu rechnen müssen.
+    for (let i = 2000; i >= 0; i--) {
+      const needAth = i % 8 === 0;
+      const needHistory = i < 30;
+      if (!needAth && !needHistory) continue;
+      const p = sharedStockPrice(s, seedTick - i);
+      if (needAth && p > ath) ath = p;
+      if (needHistory) history.push(p);
+    }
     stocks[s.id] = {
       price: history[history.length - 1], history,
       ath, boostUntil: 0, crashUntil: 0, markerUntil: 0, markerType: "",
