@@ -20,11 +20,12 @@ let result = null;           // { title, text } wenn Partie vorbei
 let thinking = false;
 let aiRequest = 0;
 let pendingPromo = null;
+let online = null;           // laufende Online-Partie: { id, color, data } (siehe online.js)
 
 const current = () => states[states.length - 1];
 const mode = () => $('mode').value;
-const humanColor = () => (mode() === 'ai-b' ? 'b' : 'w');
-const isAiTurn = () => mode() !== 'local' && !result && current().turn !== humanColor();
+const humanColor = () => (online ? online.color : mode() === 'ai-b' ? 'b' : 'w');
+const isAiTurn = () => !online && mode() !== 'local' && !result && current().turn !== humanColor();
 
 // ---------- Computer (Web Worker, mit Fallback) ----------
 let worker = null;
@@ -63,26 +64,47 @@ function cancelAi() { aiRequest++; thinking = false; }
 // ---------- Spielablauf ----------
 function newGame() {
   cancelAi();
-  states = [initialState()];
-  history = [];
-  keys = [positionKey(states[0])];
+  if (online) { leaveOnlineGame(); load(); return; } // zurück zur eigenen Partie
+  resetGame();
   flipped = humanColor() === 'b';
   afterChange();
 }
 
 function play(m) {
+  pushMove(m);
+  selected = -1;
+  afterChange();
+  if (online) sendOnlineMove(m, result);
+}
+
+function pushMove(m) {
   const s = current();
-  const san = toSAN(s, m, legal);
+  const san = toSAN(s, m, legalMoves(s));
   const ns = makeMove(s, m);
   states.push(ns);
   history.push({ from: m.from, to: m.to, promo: m.promo || null, san });
   keys.push(positionKey(ns));
-  selected = -1;
-  afterChange();
+}
+
+function resetGame() {
+  states = [initialState()];
+  history = [];
+  keys = [positionKey(states[0])];
+}
+
+// Spielt eine Zugliste ab ([from, to, promo] je Zug). Bricht bei ungültigem Zug ab.
+function replayMoves(list) {
+  resetGame();
+  for (const [from, to, promo] of list) {
+    const m = legalMoves(current()).find(x => x.from === from && x.to === to && (x.promo || null) === (promo || null));
+    if (!m) return false;
+    pushMove(m);
+  }
+  return true;
 }
 
 function undo() {
-  if (history.length === 0) return;
+  if (history.length === 0 || online) return;
   cancelAi();
   let n = 1;
   if (mode() !== 'local') {
@@ -98,10 +120,11 @@ function undo() {
 function afterChange() {
   const s = current();
   legal = legalMoves(s);
-  result = computeResult(s);
+  const before = result;
+  result = computeResult(s) || (online ? onlineResult() : null);
   save();
   render();
-  if (result) setTimeout(() => showGameOver(), 400);
+  if (result && !before) setTimeout(() => showGameOver(), 400);
   else requestAiMove();
 }
 
@@ -109,18 +132,19 @@ function computeResult(s) {
   const side = s.turn === 'w' ? 'Weiß' : 'Schwarz';
   const winner = s.turn === 'w' ? 'Schwarz' : 'Weiß';
   if (!legal.length) {
-    if (inCheck(s)) return { title: `Schachmatt – ${winner} gewinnt!`, text: `${side} ist schachmatt.` };
-    return { title: 'Remis', text: `Patt: ${side} hat keinen legalen Zug, steht aber nicht im Schach.` };
+    if (inCheck(s)) return { title: `Schachmatt – ${winner} gewinnt!`, text: `${side} ist schachmatt.`, code: s.turn === 'w' ? '0-1' : '1-0' };
+    return { title: 'Remis', text: `Patt: ${side} hat keinen legalen Zug, steht aber nicht im Schach.`, code: '1/2-1/2' };
   }
-  if (s.half >= 100) return { title: 'Remis', text: '50 Züge ohne Bauernzug oder Schlagen.' };
-  if (insufficientMaterial(s.board)) return { title: 'Remis', text: 'Zu wenig Material zum Mattsetzen.' };
+  if (s.half >= 100) return { title: 'Remis', text: '50 Züge ohne Bauernzug oder Schlagen.', code: '1/2-1/2' };
+  if (insufficientMaterial(s.board)) return { title: 'Remis', text: 'Zu wenig Material zum Mattsetzen.', code: '1/2-1/2' };
   const k = keys[keys.length - 1];
-  if (keys.filter(x => x === k).length >= 3) return { title: 'Remis', text: 'Dreifache Stellungswiederholung.' };
+  if (keys.filter(x => x === k).length >= 3) return { title: 'Remis', text: 'Dreifache Stellungswiederholung.', code: '1/2-1/2' };
   return null;
 }
 
 // ---------- Speichern ----------
 function save() {
+  if (online) return; // Online-Partien liegen in der Cloud
   try {
     localStorage.setItem(SAVE_KEY, JSON.stringify({
       moves: history.map(h => [h.from, h.to, h.promo]),
@@ -134,22 +158,12 @@ function load() {
   try { data = JSON.parse(localStorage.getItem(SAVE_KEY)); } catch (e) { data = null; }
   if (data && data.mode) $('mode').value = data.mode;
   if (data && data.level) $('level').value = data.level;
-  states = [initialState()];
-  history = [];
-  keys = [positionKey(states[0])];
   flipped = humanColor() === 'b';
   if (data && Array.isArray(data.moves)) {
-    for (const [from, to, promo] of data.moves) {
-      const s = current();
-      const lm = legalMoves(s);
-      const m = lm.find(x => x.from === from && x.to === to && (x.promo || null) === promo);
-      if (!m) break;
-      const ns = makeMove(s, m);
-      history.push({ from, to, promo, san: toSAN(s, m, lm) });
-      states.push(ns);
-      keys.push(positionKey(ns));
-    }
+    replayMoves(data.moves); // bei einem ungültigen Zug bleibt die Partie bis dahin erhalten
     if (typeof data.flipped === 'boolean') flipped = data.flipped;
+  } else {
+    resetGame();
   }
   afterChange();
 }
@@ -157,6 +171,7 @@ function load() {
 // ---------- Eingabe ----------
 function canMoveNow() {
   if (result || thinking || pendingPromo) return false;
+  if (online) return online.data.status === 'active' && current().turn === online.color;
   return mode() === 'local' || current().turn === humanColor();
 }
 
@@ -295,7 +310,11 @@ function render() {
   renderMoves();
   renderStatus(s);
   $('btn-undo').disabled = history.length === 0;
-  $('level-setting').hidden = mode() === 'local';
+  $('btn-undo').hidden = !!online;
+  $('mode-setting').hidden = !!online;
+  $('level-setting').hidden = !!online || mode() === 'local';
+  $('btn-new').textContent = online ? 'Online-Partie verlassen' : 'Neues Spiel';
+  if (typeof renderOnlineGameControls === 'function') renderOnlineGameControls();
   $('board').classList.toggle('busy', thinking);
 }
 
@@ -311,6 +330,10 @@ function renderPlayers(s) {
   const bottomColor = other(topColor);
   const label = (color) => {
     const name = color === 'w' ? 'Weiß' : 'Schwarz';
+    if (online) {
+      const player = color === 'w' ? online.data.whiteName : online.data.blackName;
+      return `${name}: ${player}${color === online.color ? ' (Du)' : ''}`;
+    }
     if (mode() === 'local') return name;
     return color === humanColor() ? `${name} (Du)` : `${name} (Computer)`;
   };
@@ -377,9 +400,11 @@ function renderStatus(s) {
   let text;
   if (result) text = result.title;
   else if (thinking) text = 'Computer denkt nach …';
+  else if (online && online.data.status === 'invited') text = `Warte, bis ${opponentName()} die Einladung annimmt …`;
   else {
     text = `${side} ist am Zug`;
-    if (mode() !== 'local' && s.turn === humanColor()) text = 'Du bist am Zug';
+    if (online && s.turn !== online.color) text = `${opponentName()} ist am Zug`;
+    if ((online || mode() !== 'local') && s.turn === humanColor()) text = 'Du bist am Zug';
     if (inCheck(s)) text += ' – Schach!';
   }
   $('status').textContent = text;
@@ -390,6 +415,7 @@ function showGameOver() {
   if (!result) return;
   $('gameover-title').textContent = result.title;
   $('gameover-text').textContent = result.text;
+  $('gameover-new').textContent = online ? 'Zurück zu meiner Partie' : 'Neues Spiel';
   $('gameover').hidden = false;
 }
 

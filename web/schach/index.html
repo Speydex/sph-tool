@@ -43,8 +43,14 @@
       </div>
     </section>
 
-    <aside class="panel">
-      <div class="setting">
+    <aside class="side">
+    <div class="panel">
+      <div id="online-game" class="online-game" hidden>
+        <p id="og-title" class="og-title"></p>
+        <p id="og-info" class="dim"></p>
+        <div id="og-actions" class="og-actions"></div>
+      </div>
+      <div class="setting" id="mode-setting">
         <label for="mode">Gegner</label>
         <select id="mode">
           <option value="ai-w">Computer (ich spiele Weiß)</option>
@@ -70,11 +76,87 @@
 
       <h2>Züge</h2>
       <ol id="moves" class="moves"></ol>
+    </div>
+
+    <section class="panel online" id="online-panel" aria-labelledby="online-heading">
+      <h2 id="online-heading">Online mit Freunden</h2>
+      <p id="ol-msg" class="ol-msg" aria-live="polite" hidden></p>
+
+      <div id="ol-off" hidden>
+        <p class="dim">Online-Spiel ist gerade nicht verfügbar. Prüfe deine Internetverbindung und lade die Seite neu.</p>
+      </div>
+
+      <form id="ol-login" class="stack" hidden>
+        <p class="dim">Melde dich an, um Freunde hinzuzufügen und online gegen sie zu spielen. Dein BörsenTycoon-Konto funktioniert auch hier.</p>
+        <label for="ol-email">E-Mail</label>
+        <input id="ol-email" type="email" autocomplete="email" required>
+        <label for="ol-password">Passwort</label>
+        <input id="ol-password" type="password" autocomplete="current-password" minlength="6" required>
+        <div class="row">
+          <button type="submit" class="primary grow">Anmelden</button>
+          <button type="button" id="ol-register" class="grow">Registrieren</button>
+        </div>
+        <button type="button" id="ol-forgot" class="link">Passwort vergessen?</button>
+      </form>
+
+      <form id="ol-name" class="stack" hidden>
+        <label for="ol-name-input">Wie sollen deine Freunde dich sehen?</label>
+        <input id="ol-name-input" type="text" maxlength="20" autocomplete="nickname" required>
+        <button type="submit" class="primary">Speichern</button>
+      </form>
+
+      <div id="ol-lobby" class="stack" hidden>
+        <p class="row me">
+          <span class="grow">Angemeldet als <b id="ol-me"></b></span>
+          <button type="button" id="ol-rename" class="link">Name ändern</button>
+          <button type="button" id="ol-logout" class="link">Abmelden</button>
+        </p>
+        <div class="code-box">
+          <span>Dein Freundescode</span>
+          <b id="ol-code" class="code"></b>
+          <button type="button" id="ol-copy" class="small">Kopieren</button>
+        </div>
+        <form id="ol-add" class="row">
+          <label for="ol-add-code" class="sr-only">Freundescode deines Freundes</label>
+          <input id="ol-add-code" class="grow code-input" type="text" maxlength="8" placeholder="Code eingeben" autocomplete="off" autocapitalize="characters">
+          <button type="submit">Hinzufügen</button>
+        </form>
+
+        <div id="ol-invites-box" hidden>
+          <h3>Für dich</h3>
+          <ul id="ol-invites" class="list"></ul>
+        </div>
+
+        <h3>Laufende Partien</h3>
+        <ul id="ol-games" class="list"></ul>
+
+        <h3 class="row"><span class="grow">Freunde</span>
+          <label for="ol-color" class="sr-only">Deine Farbe</label>
+          <select id="ol-color" class="small" title="Deine Farbe beim Herausfordern">
+            <option value="random">Farbe: Zufall</option>
+            <option value="w">Ich spiele Weiß</option>
+            <option value="b">Ich spiele Schwarz</option>
+          </select>
+        </h3>
+        <ul id="ol-friends" class="list"></ul>
+
+        <div id="ol-done-box" hidden>
+          <h3>Letzte Partien</h3>
+          <ul id="ol-done" class="list"></ul>
+        </div>
+      </div>
+    </section>
     </aside>
   </main>
 </div>
 
+<!-- Firebase (Konten + Datenbank), dasselbe Projekt wie BörsenTycoon -->
+<script src="https://www.gstatic.com/firebasejs/10.13.0/firebase-app-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/10.13.0/firebase-auth-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/10.13.0/firebase-firestore-compat.js"></script>
+<script src="../boersentycoon/firebase-config.js"></script>
 <script src="engine.js"></script>
 <script src="app.js"></script>
+<script src="online.js"></script>
 </body>
 </html>
