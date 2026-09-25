@@ -1,0 +1,80 @@
+<!DOCTYPE html>
+<html lang="de">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<meta http-equiv="Cache-Control" content="no-cache, no-store, must-revalidate">
+<title>Schach</title>
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+<div class="app">
+  <header class="topbar">
+    <h1>♞ Schach</h1>
+    <p id="status" class="status" aria-live="polite"></p>
+  </header>
+
+  <main class="layout">
+    <section class="board-area">
+      <div class="player-row" id="row-top">
+        <span class="player-name" id="name-top"></span>
+        <span class="captured" id="captured-top"></span>
+      </div>
+      <div class="board-wrap">
+        <div id="board" class="board" role="grid" aria-label="Schachbrett"></div>
+        <div id="promo" class="overlay" hidden>
+          <div class="overlay-box">
+            <p>Umwandeln in:</p>
+            <div id="promo-choices" class="promo-choices"></div>
+          </div>
+        </div>
+        <div id="gameover" class="overlay" hidden>
+          <div class="overlay-box">
+            <p id="gameover-title" class="gameover-title"></p>
+            <p id="gameover-text"></p>
+            <button type="button" id="gameover-new" class="primary">Neues Spiel</button>
+            <button type="button" id="gameover-close">Brett ansehen</button>
+          </div>
+        </div>
+      </div>
+      <div class="player-row" id="row-bottom">
+        <span class="player-name" id="name-bottom"></span>
+        <span class="captured" id="captured-bottom"></span>
+      </div>
+    </section>
+
+    <aside class="panel">
+      <div class="setting">
+        <label for="mode">Gegner</label>
+        <select id="mode">
+          <option value="ai-w">Computer (ich spiele Weiß)</option>
+          <option value="ai-b">Computer (ich spiele Schwarz)</option>
+          <option value="local">2 Spieler an einem Gerät</option>
+        </select>
+      </div>
+      <div class="setting" id="level-setting">
+        <label for="level">Stärke</label>
+        <select id="level">
+          <option value="1">Leicht</option>
+          <option value="2" selected>Mittel</option>
+          <option value="3">Schwer</option>
+          <option value="4">Meister</option>
+        </select>
+      </div>
+
+      <div class="buttons">
+        <button type="button" id="btn-new" class="primary">Neues Spiel</button>
+        <button type="button" id="btn-undo">↶ Zurück</button>
+        <button type="button" id="btn-flip">⇅ Drehen</button>
+      </div>
+
+      <h2>Züge</h2>
+      <ol id="moves" class="moves"></ol>
+    </aside>
+  </main>
+</div>
+
+<script src="engine.js"></script>
+<script src="app.js"></script>
+</body>
+</html>
