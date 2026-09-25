@@ -41,6 +41,7 @@ jobs:
           sed -i "s/engine\.js/engine.js?v=${SHORT_SHA}/" web/schach/index.html
           sed -i "s/app\.js/app.js?v=${SHORT_SHA}/" web/schach/index.html
           sed -i "s/style\.css/style.css?v=${SHORT_SHA}/" web/schach/index.html
+          sed -i "s/online\.js/online.js?v=${SHORT_SHA}/" web/schach/index.html
 
       - uses: actions/upload-pages-artifact@v3
         with:
