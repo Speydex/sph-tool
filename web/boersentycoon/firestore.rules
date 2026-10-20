@@ -36,6 +36,17 @@
 // - chessGames/{gameId}: Online-Partien. Nur die zwei Spieler:innen sehen
 //   und ändern sie. Ein neuer Zug darf nur angehängt werden, wenn man selbst
 //   am Zug ist; beendete Partien sind unveränderlich.
+//
+// Clips (web/clips/, Videos nur für Freunde):
+// - clipsInvites/{code}: Einladungscodes. Nur die Admin-E-Mail darf sie
+//   sehen, anlegen und löschen. Wer einen gültigen Code kennt, darf beitreten.
+// - clipsMembers/{userId}: Wer in der Gruppe ist (Anzeigename). Nur
+//   Mitglieder sehen die Liste. Beitreten geht nur mit gültigem Code (die
+//   Admin-E-Mail braucht keinen), entfernen darf man sich selbst oder der Admin.
+// - clipsVideos/{videoId}: Videos samt Unterdokumenten (chunks = das Video in
+//   Stücken unter 1 MB, likes, comments). Nur Mitglieder sehen sie. Posten
+//   und Löschen darf nur der Besitzer (Löschen auch der Admin). Der
+//   Like-Zähler darf sich nur zusammen mit dem eigenen Like um genau 1 ändern.
 
 rules_version = '2';
 service cloud.firestore {
@@ -100,6 +111,121 @@ service cloud.firestore {
       allow delete: if request.auth != null
         && request.auth.uid in resource.data.players
         && resource.data.status == 'invited';
+    }
+
+    // ---------- Clips ----------
+    function clipsAdmin() {
+      return request.auth != null && request.auth.token.email == 'stark.liam2011@gmail.com';
+    }
+    function clipsMember() {
+      return request.auth != null
+        && exists(/databases/$(database)/documents/clipsMembers/$(request.auth.uid));
+    }
+    function clipsName(n) {
+      return n is string && n.size() >= 2 && n.size() <= 20;
+    }
+    match /clipsInvites/{code} {
+      allow read, delete: if clipsAdmin();
+      allow create: if clipsAdmin()
+        && code.matches('[A-Z0-9]{6,12}')
+        && request.resource.data.keys().hasOnly(['createdAt']);
+    }
+    match /clipsMembers/{userId} {
+      allow read: if request.auth != null && (request.auth.uid == userId || clipsMember());
+      allow create: if request.auth != null && request.auth.uid == userId
+        && request.resource.data.keys().hasOnly(['name', 'code', 'joinedAt'])
+        && clipsName(request.resource.data.name)
+        && (clipsAdmin()
+            || (request.resource.data.code is string
+                && request.resource.data.code.matches('[A-Z0-9]{6,12}')
+                && exists(/databases/$(database)/documents/clipsInvites/$(request.resource.data.code))));
+      allow update: if request.auth != null && request.auth.uid == userId
+        && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['name'])
+        && clipsName(request.resource.data.name);
+      allow delete: if request.auth != null && (request.auth.uid == userId || clipsAdmin());
+    }
+    match /clipsVideos/{videoId} {
+      function video() {
+        return get(/databases/$(database)/documents/clipsVideos/$(videoId)).data;
+      }
+      function videoAfter() {
+        return getAfter(/databases/$(database)/documents/clipsVideos/$(videoId)).data;
+      }
+      function myLike() {
+        return /databases/$(database)/documents/clipsVideos/$(videoId)/likes/$(request.auth.uid);
+      }
+      function changed() {
+        return request.resource.data.diff(resource.data).affectedKeys();
+      }
+      allow read: if clipsMember();
+      allow create: if clipsMember()
+        && request.resource.data.keys().hasOnly(['owner', 'caption', 'type', 'size', 'chunks', 'duration',
+                                                 'thumb', 'likes', 'comments', 'ready', 'createdAt'])
+        && request.resource.data.owner == request.auth.uid
+        && request.resource.data.caption is string && request.resource.data.caption.size() <= 300
+        && request.resource.data.type is string && request.resource.data.type.size() <= 60
+        && request.resource.data.size is int
+        && request.resource.data.chunks is int
+        && request.resource.data.chunks >= 1 && request.resource.data.chunks <= 20
+        && request.resource.data.duration is number
+        && (request.resource.data.thumb == null
+            || (request.resource.data.thumb is string && request.resource.data.thumb.size() <= 60000))
+        && request.resource.data.likes == 0
+        && request.resource.data.comments == 0
+        && request.resource.data.ready == false
+        && request.resource.data.createdAt == request.time;
+      allow update: if clipsMember() && (
+          (request.auth.uid == resource.data.owner
+            && changed().hasOnly(['caption', 'ready'])
+            && request.resource.data.caption is string
+            && request.resource.data.caption.size() <= 300
+            && request.resource.data.ready is bool)
+          || (changed().hasOnly(['likes'])
+            && ((request.resource.data.likes == resource.data.likes + 1
+                 && !exists(myLike()) && existsAfter(myLike()))
+                || (request.resource.data.likes == resource.data.likes - 1
+                 && exists(myLike()) && !existsAfter(myLike()))))
+          || (changed().hasOnly(['comments'])
+            && request.resource.data.comments >= 0
+            && (request.resource.data.comments == resource.data.comments + 1
+                || request.resource.data.comments == resource.data.comments - 1)));
+      allow delete: if request.auth != null && (request.auth.uid == resource.data.owner || clipsAdmin());
+
+      match /chunks/{chunkId} {
+        allow read: if clipsMember();
+        allow create: if request.auth != null
+          && chunkId.matches('[0-9]{2}')
+          && video().owner == request.auth.uid
+          && video().ready == false
+          && request.resource.data.keys().hasOnly(['data'])
+          && request.resource.data.data is bytes
+          && request.resource.data.data.size() <= 950000;
+        allow delete: if request.auth != null && (video().owner == request.auth.uid || clipsAdmin());
+      }
+      match /likes/{userId} {
+        allow read: if clipsMember();
+        allow create: if clipsMember() && request.auth.uid == userId
+          && request.resource.data.keys().hasOnly(['at'])
+          && videoAfter().likes == video().likes + 1;
+        allow delete: if request.auth != null && (
+          (request.auth.uid == userId && videoAfter().likes == video().likes - 1)
+          || video().owner == request.auth.uid
+          || clipsAdmin());
+      }
+      match /comments/{commentId} {
+        allow read: if clipsMember();
+        allow create: if clipsMember()
+          && request.resource.data.keys().hasOnly(['uid', 'text', 'createdAt'])
+          && request.resource.data.uid == request.auth.uid
+          && request.resource.data.text is string
+          && request.resource.data.text.size() >= 1 && request.resource.data.text.size() <= 300
+          && request.resource.data.createdAt == request.time
+          && videoAfter().comments == video().comments + 1;
+        allow delete: if request.auth != null && (
+          resource.data.uid == request.auth.uid
+          || video().owner == request.auth.uid
+          || clipsAdmin());
+      }
     }
   }
 }

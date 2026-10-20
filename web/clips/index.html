@@ -1,0 +1,130 @@
+<!DOCTYPE html>
+<html lang="de">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
+<meta http-equiv="Cache-Control" content="no-cache, no-store, must-revalidate">
+<meta name="theme-color" content="#000000">
+<title>Clips</title>
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+
+<!-- Firebase nicht erreichbar -->
+<section id="screen-off" class="screen center" hidden>
+  <div class="card">
+    <h1 class="logo">Clips</h1>
+    <p class="dim">Clips ist gerade nicht erreichbar. Prüfe deine Internetverbindung und lade die Seite neu.</p>
+  </div>
+</section>
+
+<!-- Anmelden -->
+<section id="screen-login" class="screen center" hidden>
+  <form id="login-form" class="card stack">
+    <h1 class="logo">Clips</h1>
+    <p class="dim">Videos nur für dich und deine Freunde. Dein Konto von BörsenTycoon oder Schach funktioniert auch hier.</p>
+    <label for="login-email">E-Mail</label>
+    <input id="login-email" type="email" autocomplete="email" required>
+    <label for="login-password">Passwort</label>
+    <input id="login-password" type="password" autocomplete="current-password" minlength="6" required>
+    <div class="row">
+      <button type="submit" class="primary grow">Anmelden</button>
+      <button type="button" id="login-register" class="grow">Registrieren</button>
+    </div>
+    <button type="button" id="login-forgot" class="link">Passwort vergessen?</button>
+  </form>
+</section>
+
+<!-- Der Gruppe beitreten -->
+<section id="screen-join" class="screen center" hidden>
+  <form id="join-form" class="card stack">
+    <h1 class="logo">Clips</h1>
+    <p id="join-intro" class="dim">Clips ist privat. Um reinzukommen, brauchst du einen Einladungscode (oder Einladungslink) vom Admin der Gruppe.</p>
+    <label for="join-name">Wie sollen deine Freunde dich sehen?</label>
+    <input id="join-name" type="text" minlength="2" maxlength="20" autocomplete="nickname" required>
+    <div id="join-code-box" class="stack">
+      <label for="join-code">Einladungscode</label>
+      <input id="join-code" class="code-input" type="text" maxlength="12" autocomplete="off" autocapitalize="characters">
+    </div>
+    <button type="submit" class="primary">Beitreten</button>
+    <button type="button" id="join-logout" class="link">Mit anderem Konto anmelden</button>
+  </form>
+</section>
+
+<!-- Die eigentliche App -->
+<section id="screen-app" class="screen" hidden>
+  <div id="view-feed" class="view">
+    <div id="feed" class="feed"></div>
+    <div id="feed-empty" class="feed-empty" hidden>
+      <p class="big">🎬</p>
+      <p>Noch keine Videos.</p>
+      <button type="button" class="primary" data-go="upload">Erstes Video posten</button>
+    </div>
+    <button type="button" id="feed-new" class="pill new-pill" hidden>↑ Neue Videos</button>
+  </div>
+
+  <div id="view-upload" class="view scroll" hidden>
+    <form id="upload-form" class="page stack">
+      <h2>Neues Video</h2>
+      <label class="pick" id="upload-pick">
+        <input id="upload-file" type="file" accept="video/*">
+        <span>🎥<br>Video auswählen oder aufnehmen</span>
+      </label>
+      <video id="upload-preview" class="upload-preview" playsinline muted loop hidden></video>
+      <p id="upload-info" class="dim small" hidden></p>
+      <label for="upload-caption">Beschreibung</label>
+      <textarea id="upload-caption" rows="2" maxlength="150" placeholder="Worum geht's? #hashtags"></textarea>
+      <div id="upload-progress" class="progress" hidden>
+        <div class="bar"><span id="upload-bar"></span></div>
+        <p id="upload-step" class="dim small"></p>
+      </div>
+      <button type="submit" id="upload-submit" class="primary" disabled>Posten</button>
+    </form>
+  </div>
+
+  <div id="view-profile" class="view scroll" hidden>
+    <div id="profile" class="page"></div>
+  </div>
+
+  <nav class="tabbar">
+    <button type="button" class="tab" data-go="feed">🏠<span>Feed</span></button>
+    <button type="button" class="tab tab-plus" data-go="upload" aria-label="Video posten"><b>＋</b></button>
+    <button type="button" class="tab" data-go="profile">👤<span>Profil</span></button>
+  </nav>
+
+  <!-- Videos eines Profils abspielen -->
+  <div id="player" class="player" hidden>
+    <div id="player-feed" class="feed"></div>
+    <button type="button" id="player-close" class="round close-btn" aria-label="Schließen">✕</button>
+  </div>
+
+  <button type="button" id="sound" class="round sound-btn" aria-label="Ton an/aus">🔇</button>
+</section>
+
+<!-- Kommentare -->
+<div id="comments" class="sheet-wrap" hidden>
+  <div class="sheet">
+    <header class="sheet-head">
+      <b id="comments-title">Kommentare</b>
+      <button type="button" id="comments-close" class="link" aria-label="Schließen">✕</button>
+    </header>
+    <ul id="comments-list" class="comments-list"></ul>
+    <form id="comments-form" class="row comment-form">
+      <label for="comments-input" class="sr-only">Kommentar</label>
+      <input id="comments-input" class="grow" type="text" maxlength="300" placeholder="Kommentar schreiben …" autocomplete="off">
+      <button type="submit" class="primary">Senden</button>
+    </form>
+  </div>
+</div>
+
+<p id="toast" class="toast" aria-live="polite" hidden></p>
+
+<!-- Firebase (Konten + Datenbank), dasselbe Projekt wie BörsenTycoon und Schach -->
+<script src="https://www.gstatic.com/firebasejs/10.13.0/firebase-app-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/10.13.0/firebase-auth-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/10.13.0/firebase-firestore-compat.js"></script>
+<script src="../boersentycoon/firebase-config.js"></script>
+<script src="video.js"></script>
+<script src="app.js"></script>
+</body>
+</html>
