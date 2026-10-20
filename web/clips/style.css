@@ -203,6 +203,13 @@ label { font-weight: 600; font-size: 14px; }
 }
 .avatar.big { width: 48px; height: 48px; font-size: 22px; border: 2px solid #fff; }
 .avatar.huge { width: 88px; height: 88px; font-size: 40px; }
+.avatar.photo { background: #333 center / cover no-repeat; }
+.photo-row { justify-content: center; margin: 4px 0 6px; }
+.button-like {
+  display: inline-block; cursor: pointer;
+  border: 1px solid var(--border); background: var(--panel);
+  border-radius: 10px; padding: 6px 10px; font-weight: 400;
+}
 
 .feed-empty {
   position: absolute; inset: 0;

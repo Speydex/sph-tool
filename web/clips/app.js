@@ -6,7 +6,8 @@
  *
  * Datenmodell:
  *   clipsInvites/{code}             { createdAt }               nur der Admin
- *   clipsMembers/{uid}              { name, code, joinedAt }    wer drin ist
+ *   clipsMembers/{uid}              { name, nameKey, photo, code, joinedAt }   wer drin ist
+ *   clipsNames/{nameKey}            { uid }                     sorgt dafür, dass jeder Name nur einmal vorkommt
  *   clipsVideos/{id}                { owner, caption, type, size, chunks, duration,
  *                                     thumb, likes, comments, ready, createdAt }
  *   clipsVideos/{id}/chunks/{00..}  { data: Bytes }             das Video in Stücken < 1 MB
@@ -17,6 +18,7 @@
 
 const ADMIN_EMAIL = 'stark.liam2011@gmail.com';
 const CHUNK_BYTES = 900 * 1024;
+const MAX_CHUNKS = 40;
 const FEED_PAGE = 30;
 const URL_CACHE = 8;
 const CODE_ALPHABET = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789';
@@ -101,6 +103,13 @@ function initial(name) {
 
 function avatar(uid, cls = '') {
   const name = nameOf(uid);
+  const m = S.members.get(uid);
+  if (m && m.photo) {
+    const a = el('span', 'avatar photo ' + cls);
+    a.style.backgroundImage = `url("${m.photo}")`;
+    a.setAttribute('aria-label', name);
+    return a;
+  }
   const a = el('span', 'avatar ' + cls, initial(name));
   // Jede Person bekommt immer dieselbe Farbe
   let hash = 0;
@@ -214,25 +223,76 @@ function cleanName(raw) {
   return raw.trim().replace(/\s+/g, ' ');
 }
 
+// Groß-/Kleinschreibung zählt nicht: „Max“ und „max“ sind derselbe Name. Nur
+// A–Z, weil die Firestore-Regeln (lower()) Umlaute nicht umwandeln.
+const nameKey = (name) => name.replace(/[A-Z]+/g, (c) => c.toLowerCase());
+const names = () => S.db.collection('clipsNames');
+
+function nameProblem(name) {
+  if (name.length < 2 || name.length > 20) return 'Der Name muss 2 bis 20 Zeichen lang sein.';
+  if (name.includes('/') || /^\.+$/.test(name) || /^__.*__$/.test(name)) return 'Dieser Name geht leider nicht. Lass „/“ weg.';
+  return null;
+}
+
+// Prüft, ob der Name noch frei ist (oder schon mir gehört)
+async function nameOwner(name) {
+  const snap = await names().doc(nameKey(name)).get();
+  return snap.exists ? snap.data().uid : null;
+}
+
+// Name reservieren und ins Profil schreiben, alten Namen freigeben. Alles in
+// einem Rutsch, damit nie zwei Leute denselben Namen bekommen.
+async function claimName(name, memberData = null) {
+  const key = nameKey(name);
+  const owner = await nameOwner(name);
+  if (owner && owner !== myUid()) throw new Error(`Den Namen „${name}“ hat schon jemand. Such dir einen anderen aus.`);
+  const batch = S.db.batch();
+  if (!owner) batch.set(names().doc(key), { uid: myUid() });
+  const ref = S.db.collection('clipsMembers').doc(myUid());
+  if (memberData) {
+    batch.set(ref, { ...memberData, name, nameKey: key });
+  } else {
+    batch.update(ref, { name, nameKey: key });
+    const old = S.me && S.me.nameKey;
+    if (old && old !== key) batch.delete(names().doc(old));
+  }
+  await batch.commit();
+}
+
 async function join(e) {
   e.preventDefault();
   const name = cleanName($('join-name').value);
-  if (name.length < 2 || name.length > 20) { toast('Der Name muss 2 bis 20 Zeichen lang sein.', true); return; }
-  const data = { name, joinedAt: serverTime() };
+  const problem = nameProblem(name);
+  if (problem) { toast(problem, true); return; }
+  const data = { joinedAt: serverTime() };
   if (!isAdmin()) {
     const code = $('join-code').value.toUpperCase().replace(/[^A-Z0-9]/g, '');
     if (!code) { toast('Gib deinen Einladungscode ein.', true); return; }
     data.code = code;
   }
   try {
-    await S.db.collection('clipsMembers').doc(myUid()).set(data);
-    S.me = { name };
+    await claimName(name, data);
+    S.me = { name, nameKey: nameKey(name) };
     history.replaceState(null, '', location.pathname);
     startApp();
   } catch (err) {
-    if (err.code === 'permission-denied') toast('Der Einladungscode stimmt nicht (oder die Firestore-Regeln sind noch nicht veröffentlicht).', true);
+    if (err.code === 'permission-denied') toast('Der Einladungscode stimmt nicht (oder die neuen Firestore-Regeln sind noch nicht veröffentlicht).', true);
     else showError(err);
   }
+}
+
+// Wer vor der Namens-Regel beigetreten ist, reserviert seinen Namen jetzt nachträglich
+async function migrateName() {
+  if (migrateName.running || migrateName.failed) return;
+  migrateName.running = true;
+  try {
+    await claimName(S.me.name);
+  } catch (e) {
+    console.warn(e);
+    migrateName.failed = true;
+    toast(`Den Namen „${S.me.name}“ gibt es doppelt. Bitte wähl im Profil einen neuen.`, true);
+  }
+  migrateName.running = false;
 }
 
 // ---------- App ----------
@@ -249,6 +309,7 @@ function startApp() {
       return;
     }
     S.me = S.members.get(myUid());
+    if (!S.me.nameKey) migrateName();
     S.feed.refreshNames();
     if (S.player) S.player.refreshNames();
     if (S.view === 'profile') renderProfile(S.profileUid);
@@ -719,6 +780,17 @@ async function renderProfile(uid) {
   box.append(head);
 
   if (own) {
+    const photo = el('div', 'row photo-row');
+    const pick = el('label', 'button-like small', S.me.photo ? 'Profilbild ändern' : 'Profilbild hinzufügen');
+    const file = el('input', 'sr-only');
+    file.type = 'file';
+    file.accept = 'image/*';
+    file.onchange = () => file.files[0] && setPhoto(file.files[0]);
+    pick.append(file);
+    photo.append(pick);
+    if (S.me.photo) photo.append(button('Entfernen', () => setPhoto(null), 'small'));
+    box.append(photo);
+
     const rename = el('form', 'row rename');
     const input = el('input', 'grow');
     input.value = S.me.name;
@@ -728,9 +800,11 @@ async function renderProfile(uid) {
     rename.onsubmit = async (e) => {
       e.preventDefault();
       const name = cleanName(input.value);
-      if (name.length < 2 || name.length > 20) { toast('Der Name muss 2 bis 20 Zeichen lang sein.', true); return; }
+      const problem = nameProblem(name);
+      if (problem) { toast(problem, true); return; }
+      if (name === S.me.name && S.me.nameKey) return;
       try {
-        await S.db.collection('clipsMembers').doc(myUid()).update({ name });
+        await claimName(name);
         toast('Name geändert.');
       } catch (err) { showError(err); }
     };
@@ -831,6 +905,14 @@ async function copy(text, okText = 'Link kopiert.') {
   }
 }
 
+async function setPhoto(file) {
+  try {
+    const photo = file ? await makePhoto(file) : null;
+    await S.db.collection('clipsMembers').doc(myUid()).update({ photo });
+    toast(file ? 'Profilbild gespeichert.' : 'Profilbild entfernt.');
+  } catch (e) { showError(e); }
+}
+
 async function removeMember(uid, name, li) {
   if (li.dataset.armed !== '1') {
     li.dataset.armed = '1';
@@ -839,7 +921,11 @@ async function removeMember(uid, name, li) {
     return;
   }
   try {
-    await S.db.collection('clipsMembers').doc(uid).delete();
+    const batch = S.db.batch();
+    batch.delete(S.db.collection('clipsMembers').doc(uid));
+    const key = (S.members.get(uid) || {}).nameKey;
+    if (key) batch.delete(names().doc(key));
+    await batch.commit();
     toast(`${name} ist nicht mehr in der Gruppe. Lösch auch den Einladungscode, sonst kann ${name} wieder beitreten.`);
   } catch (e) { showError(e); }
 }
@@ -940,7 +1026,7 @@ async function pickFile() {
     const probe = await probeVideo(file);
     if (isFinite(probe.duration) && probe.duration > MAX_SECONDS + 0.5) {
       disposeVideo(probe.el);
-      throw new Error(`Das Video ist ${Math.round(probe.duration)} Sekunden lang. Erlaubt sind höchstens ${MAX_SECONDS} Sekunden – schneide es vorher kürzer.`);
+      throw new Error(`Das Video ist ${minutes(probe.duration)} Minuten lang. Erlaubt sind höchstens ${MAX_SECONDS / 60} Minuten – schneide es vorher kürzer.`);
     }
     if (needsCompression(probe) && !recorderType() && file.size > MAX_BYTES) {
       disposeVideo(probe.el);
@@ -951,7 +1037,7 @@ async function pickFile() {
     preview.hidden = false;
     preview.play().catch(() => {});
     const mb = (file.size / 1024 / 1024).toFixed(1);
-    info.textContent = `${Math.round(probe.duration || 0)} s · ${mb} MB` +
+    info.textContent = `${minutes(probe.duration || 0)} Min. · ${mb} MB` +
       (needsCompression(probe) && recorderType() ? ' · wird vor dem Hochladen verkleinert (dauert so lange wie das Video, lass die Seite dabei offen)' : '');
     info.hidden = false;
     $('upload-submit').disabled = false;
@@ -959,6 +1045,12 @@ async function pickFile() {
     $('upload-file').value = '';
     showError(e);
   }
+}
+
+// 95 -> „1:35“
+function minutes(seconds) {
+  const s = Math.round(seconds);
+  return `${Math.floor(s / 60)}:${String(s % 60).padStart(2, '0')}`;
 }
 
 function progress(step, part) {
@@ -1023,7 +1115,7 @@ async function finishUpload(prepared, duration) {
   } catch (err) {
     S.upload.busy = false;
     showError(err);
-    if (ref) deleteVideo({ id: ref.id, chunks: 20 }, true);
+    if (ref) deleteVideo({ id: ref.id, chunks: MAX_CHUNKS }, true);
     resetUpload(true);
   }
 }
