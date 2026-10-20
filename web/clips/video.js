@@ -7,11 +7,13 @@
  */
 'use strict';
 
-const MAX_SECONDS = 90;
-const MAX_BYTES = 18 * 1024 * 1024;        // passt in höchstens 20 Datenbank-Stücke
+const MAX_SECONDS = 300;
+const MAX_BYTES = 35 * 1024 * 1024;        // passt in höchstens 40 Datenbank-Stücke
+const TARGET_BYTES = 30 * 1024 * 1024;     // lange Videos bekommen weniger Bitrate
 const DIRECT_MAX_BYTES = 8 * 1024 * 1024;  // kleine mp4/webm direkt hochladen
 const TARGET_LONG_SIDE = 960;
 const VIDEO_BITRATE = 1200000;
+const MIN_VIDEO_BITRATE = 400000;
 const AUDIO_BITRATE = 96000;
 
 // mp4 zuerst, weil das überall abspielbar ist (auch auf iPhones)
@@ -90,7 +92,12 @@ function needsCompression(probe) {
 function compressVideo(probe, onProgress) {
   const type = recorderType();
   const v = probe.el;
-  const scale = Math.min(1, TARGET_LONG_SIDE / Math.max(probe.width, probe.height));
+  // Kurze Videos in guter Qualität, lange so, dass sie trotzdem unter TARGET_BYTES bleiben
+  const seconds = isFinite(probe.duration) && probe.duration > 0 ? probe.duration : MAX_SECONDS;
+  const bitrate = Math.round(Math.max(MIN_VIDEO_BITRATE,
+    Math.min(VIDEO_BITRATE, TARGET_BYTES * 8 / seconds - AUDIO_BITRATE)));
+  const longSide = bitrate < 900000 ? 720 : TARGET_LONG_SIDE;
+  const scale = Math.min(1, longSide / Math.max(probe.width, probe.height));
   const w = Math.max(2, Math.round(probe.width * scale / 2) * 2);
   const h = Math.max(2, Math.round(probe.height * scale / 2) * 2);
   const canvas = document.createElement('canvas');
@@ -116,7 +123,7 @@ function compressVideo(probe, onProgress) {
   }
 
   const rec = new MediaRecorder(new MediaStream(tracks), {
-    mimeType: type, videoBitsPerSecond: VIDEO_BITRATE, audioBitsPerSecond: AUDIO_BITRATE,
+    mimeType: type, videoBitsPerSecond: bitrate, audioBitsPerSecond: AUDIO_BITRATE,
   });
   const parts = [];
   rec.ondataavailable = (e) => { if (e.data.size) parts.push(e.data); };
@@ -176,5 +183,23 @@ async function makeThumb(blob) {
     return canvas.toDataURL('image/jpeg', 0.6);
   } finally {
     disposeVideo(v);
+  }
+}
+
+// Profilbild: quadratisch zugeschnitten, 200 × 200 px als JPEG (ca. 15 KB)
+async function makePhoto(file) {
+  const url = URL.createObjectURL(file);
+  try {
+    const img = new Image();
+    img.src = url;
+    await img.decode().catch(() => { throw new Error('Dieses Bild kann dein Browser nicht öffnen. Nimm ein JPG oder PNG.'); });
+    const side = Math.min(img.naturalWidth, img.naturalHeight);
+    const canvas = document.createElement('canvas');
+    canvas.width = canvas.height = 200;
+    canvas.getContext('2d').drawImage(img,
+      (img.naturalWidth - side) / 2, (img.naturalHeight - side) / 2, side, side, 0, 0, 200, 200);
+    return canvas.toDataURL('image/jpeg', 0.82);
+  } finally {
+    URL.revokeObjectURL(url);
   }
 }

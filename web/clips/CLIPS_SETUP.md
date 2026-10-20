@@ -37,6 +37,10 @@ sie wieder beitreten).
 
 - Nur Mitglieder sehen Videos, Likes, Kommentare und die Mitgliederliste.
   Ohne Einladung sieht man nichts, auch nicht über Umwege.
+- Jeder Name kommt nur einmal vor (Groß-/Kleinschreibung egal: „Max“ und
+  „max“ gelten als gleich). Wer schon Mitglied war, bekommt seinen Namen beim
+  nächsten Öffnen automatisch reserviert.
+- Profilbilder kann nur jede Person für sich selbst ändern.
 - Videos löschen kann nur, wer sie gepostet hat (und du als Admin).
 - Likes können nicht gefälscht werden: Jede Person kann ein Video nur einmal
   liken, und der Zähler ändert sich nur zusammen mit dem eigenen Like.
@@ -48,12 +52,12 @@ sie wieder beitreten).
 Die Videos liegen direkt in der Firestore-Datenbank, aufgeteilt in Stücke
 unter 1 MB. Dafür braucht man keinen kostenpflichtigen Firebase-Tarif.
 
-- Videos dürfen höchstens **90 Sekunden** lang sein.
+- Videos dürfen höchstens **5 Minuten** lang sein.
 - Große Videos (z. B. vom Handy) werden vor dem Hochladen **im Browser
-  verkleinert** (max. 960 px, etwa 1,3 MBit/s). Das dauert so lange wie das
+  verkleinert** (max. 960 px, etwa 1,3 MBit/s, lange Videos etwas weniger). Das dauert so lange wie das
   Video. Die Seite muss dabei offen bleiben. Kleine mp4/webm-Dateien
   (bis 8 MB) werden direkt hochgeladen.
 - Das kostenlose Kontingent: 1 GB Speicher insgesamt, etwa 10 GB Download pro
-  Monat. Ein Video hat nach dem Verkleinern meist 3–10 MB. Für eine
+  Monat. Ein Video hat nach dem Verkleinern meist 3–10 MB (5 Minuten: bis 30 MB). Für eine
   Freundesgruppe reicht das, für hunderte Videos nicht. Wenn es knapp wird:
   alte Videos löschen.

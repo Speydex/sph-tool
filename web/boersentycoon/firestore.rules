@@ -40,9 +40,12 @@
 // Clips (web/clips/, Videos nur für Freunde):
 // - clipsInvites/{code}: Einladungscodes. Nur die Admin-E-Mail darf sie
 //   sehen, anlegen und löschen. Wer einen gültigen Code kennt, darf beitreten.
-// - clipsMembers/{userId}: Wer in der Gruppe ist (Anzeigename). Nur
+// - clipsMembers/{userId}: Wer in der Gruppe ist (Anzeigename, Profilbild). Nur
 //   Mitglieder sehen die Liste. Beitreten geht nur mit gültigem Code (die
 //   Admin-E-Mail braucht keinen), entfernen darf man sich selbst oder der Admin.
+// - clipsNames/{name}: Jeder Name (klein geschrieben) gehört genau einer
+//   Person, damit kein Name doppelt vorkommt. Man kann nur einen Namen
+//   belegen, den man gleichzeitig im eigenen Profil einträgt.
 // - clipsVideos/{videoId}: Videos samt Unterdokumenten (chunks = das Video in
 //   Stücken unter 1 MB, likes, comments). Nur Mitglieder sehen sie. Posten
 //   und Löschen darf nur der Besitzer (Löschen auch der Admin). Der
@@ -122,7 +125,17 @@ service cloud.firestore {
         && exists(/databases/$(database)/documents/clipsMembers/$(request.auth.uid));
     }
     function clipsName(n) {
-      return n is string && n.size() >= 2 && n.size() <= 20;
+      return n is string && n.size() >= 2 && n.size() <= 20
+        && !n.matches('.*/.*') && !n.matches('[.]+') && !n.matches('__.*__');
+    }
+    // Der Name im Profil muss in clipsNames auf einen selbst eingetragen sein
+    function clipsNameClaimed(userId) {
+      return request.resource.data.nameKey == request.resource.data.name.lower()
+        && getAfter(/databases/$(database)/documents/clipsNames/$(request.resource.data.nameKey)).data.uid == userId;
+    }
+    function clipsPhoto(p) {
+      return p == null
+        || (p is string && p.size() <= 80000 && p.matches('data:image/jpeg;base64,[A-Za-z0-9+/=]+'));
     }
     match /clipsInvites/{code} {
       allow read, delete: if clipsAdmin();
@@ -133,16 +146,32 @@ service cloud.firestore {
     match /clipsMembers/{userId} {
       allow read: if request.auth != null && (request.auth.uid == userId || clipsMember());
       allow create: if request.auth != null && request.auth.uid == userId
-        && request.resource.data.keys().hasOnly(['name', 'code', 'joinedAt'])
+        && request.resource.data.keys().hasOnly(['name', 'nameKey', 'code', 'joinedAt'])
         && clipsName(request.resource.data.name)
+        && clipsNameClaimed(userId)
         && (clipsAdmin()
             || (request.resource.data.code is string
                 && request.resource.data.code.matches('[A-Z0-9]{6,12}')
                 && exists(/databases/$(database)/documents/clipsInvites/$(request.resource.data.code))));
       allow update: if request.auth != null && request.auth.uid == userId
-        && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['name'])
-        && clipsName(request.resource.data.name);
+        && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['name', 'nameKey', 'photo'])
+        && (!request.resource.data.diff(resource.data).affectedKeys().hasAny(['name', 'nameKey'])
+            || (clipsName(request.resource.data.name) && clipsNameClaimed(userId)))
+        && clipsPhoto(request.resource.data.get('photo', null));
       allow delete: if request.auth != null && (request.auth.uid == userId || clipsAdmin());
+    }
+    match /clipsNames/{key} {
+      function member() {
+        return /databases/$(database)/documents/clipsMembers/$(request.auth.uid);
+      }
+      allow read: if request.auth != null;
+      allow create: if request.auth != null
+        && request.resource.data.keys().hasOnly(['uid'])
+        && request.resource.data.uid == request.auth.uid
+        && getAfter(member()).data.get('nameKey', '') == key;
+      allow delete: if request.auth != null && (clipsAdmin()
+        || (resource.data.uid == request.auth.uid
+            && (!existsAfter(member()) || getAfter(member()).data.get('nameKey', '') != key)));
     }
     match /clipsVideos/{videoId} {
       function video() {
@@ -166,7 +195,7 @@ service cloud.firestore {
         && request.resource.data.type is string && request.resource.data.type.size() <= 60
         && request.resource.data.size is int
         && request.resource.data.chunks is int
-        && request.resource.data.chunks >= 1 && request.resource.data.chunks <= 20
+        && request.resource.data.chunks >= 1 && request.resource.data.chunks <= 40
         && request.resource.data.duration is number
         && (request.resource.data.thumb == null
             || (request.resource.data.thumb is string && request.resource.data.thumb.size() <= 60000))
