@@ -7,13 +7,14 @@
  */
 'use strict';
 
-const MAX_SECONDS = 300;
-const MAX_BYTES = 35 * 1024 * 1024;        // passt in höchstens 40 Datenbank-Stücke
-const TARGET_BYTES = 30 * 1024 * 1024;     // lange Videos bekommen weniger Bitrate
+// Keine feste Längengrenze. Begrenzt ist nur die Größe (300 Datenbank-Stücke à
+// 900 KB); mit der niedrigsten Bitrate passen gut 60 Minuten hinein.
+const MAX_BYTES = 260 * 1024 * 1024;
+const TARGET_BYTES = 30 * 1024 * 1024;     // bis hierhin volle Qualität, danach weniger Bitrate
 const DIRECT_MAX_BYTES = 8 * 1024 * 1024;  // kleine mp4/webm direkt hochladen
 const TARGET_LONG_SIDE = 960;
 const VIDEO_BITRATE = 1200000;
-const MIN_VIDEO_BITRATE = 400000;
+const MIN_VIDEO_BITRATE = 450000;
 const AUDIO_BITRATE = 96000;
 
 // mp4 zuerst, weil das überall abspielbar ist (auch auf iPhones)
@@ -93,7 +94,7 @@ function compressVideo(probe, onProgress) {
   const type = recorderType();
   const v = probe.el;
   // Kurze Videos in guter Qualität, lange so, dass sie trotzdem unter TARGET_BYTES bleiben
-  const seconds = isFinite(probe.duration) && probe.duration > 0 ? probe.duration : MAX_SECONDS;
+  const seconds = isFinite(probe.duration) && probe.duration > 0 ? probe.duration : 600;
   const bitrate = Math.round(Math.max(MIN_VIDEO_BITRATE,
     Math.min(VIDEO_BITRATE, TARGET_BYTES * 8 / seconds - AUDIO_BITRATE)));
   const longSide = bitrate < 900000 ? 720 : TARGET_LONG_SIDE;
