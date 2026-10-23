@@ -70,6 +70,10 @@
         <input id="upload-file" type="file" accept="video/*">
         <span><span class="pick-icon" data-icon="camera"></span><br>Video auswählen oder aufnehmen</span>
       </label>
+      <p class="or"><span>oder</span></p>
+      <label for="upload-link">Link von TikTok oder YouTube einfügen</label>
+      <input id="upload-link" type="url" inputmode="url" placeholder="https://www.tiktok.com/@…/video/…" autocomplete="off" autocapitalize="off" spellcheck="false">
+      <div id="link-preview" class="link-preview" hidden></div>
       <video id="upload-preview" class="upload-preview" playsinline muted loop hidden></video>
       <p id="upload-info" class="dim small" hidden></p>
       <label for="upload-caption">Beschreibung</label>
