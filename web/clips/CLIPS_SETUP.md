@@ -32,12 +32,22 @@ kann beitreten. Wenn jemand drin ist, der nicht reingehört: im Profil unter
 **Gruppe** auf **Entfernen** tippen. Die Person wird dann gesperrt und kann nicht
 wieder beitreten. Unter **Gesperrt** kannst du die Sperre wieder aufheben.
 
+## Suchen und Folgen
+
+- Unten auf **Suche**: Kanäle (Namen) und Videos (Beschreibung, #hashtags oder
+  Name) finden. Ohne Suchbegriff siehst du alle Kanäle.
+- **Folgen** geht in der Suche, im Profil oder über das kleine Plus unter dem
+  Profilbild im Feed. Im Profil stehen Follower und wem jemand folgt.
+- Oben im Feed: **Für dich** (alle) oder **Folge ich** (nur Leute, denen du
+  folgst).
+
 ## Reihenfolge im Feed
 
 Beim Öffnen sortiert Clips den Feed neu:
 
 1. Zuerst Videos von anderen, die du noch nicht gesehen hast. Neue und
-   beliebte (Likes, Kommentare) kommen weiter nach vorne, dazu etwas Zufall.
+   beliebte (Likes, Kommentare) und von Leuten, denen du folgst, kommen weiter
+   nach vorne, dazu etwas Zufall.
 2. Danach deine eigenen und schon gesehene Videos, die am längsten nicht mehr
    gesehenen zuerst.
 3. Dieselbe Person kommt möglichst nicht zweimal hintereinander.
