@@ -5,8 +5,8 @@
  * veröffentlicht sein (siehe CLIPS_SETUP.md).
  *
  * Datenmodell:
- *   clipsInvites/{code}             { createdAt }               nur der Admin
- *   clipsMembers/{uid}              { name, nameKey, photo, code, joinedAt }   wer drin ist
+ *   clipsMembers/{uid}              { name, nameKey, photo, joinedAt }   wer drin ist
+ *   clipsBanned/{uid}               { name, at }                vom Admin gesperrt
  *   clipsNames/{nameKey}            { uid }                     sorgt dafür, dass jeder Name nur einmal vorkommt
  *   clipsVideos/{id}                { owner, caption, type, size, chunks, duration,
  *                                     thumb, likes, comments, ready, createdAt }
@@ -21,7 +21,6 @@ const CHUNK_BYTES = 900 * 1024;
 const MAX_CHUNKS = 40;
 const FEED_PAGE = 30;
 const URL_CACHE = 8;
-const CODE_ALPHABET = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789';
 
 const S = {
   auth: null, db: null, user: null, me: null,
@@ -160,8 +159,6 @@ function init() {
     screen('screen-off');
     return;
   }
-  const code = new URLSearchParams(location.search).get('code');
-  if (code) $('join-code').value = code.toUpperCase();
   S.auth.onAuthStateChanged(onAuth);
 }
 
@@ -192,10 +189,9 @@ async function onAuth(user) {
 
 function showJoin(message) {
   $('join-name').value = $('join-name').value || (S.user.email || '').split('@')[0].slice(0, 20);
-  $('join-code-box').hidden = isAdmin();
   $('join-intro').textContent = isAdmin()
-    ? 'Du bist der Admin von Clips. Wähl einen Namen, dann kannst du Freunde einladen.'
-    : 'Clips ist privat. Um reinzukommen, brauchst du einen Einladungscode (oder Einladungslink) vom Admin der Gruppe.';
+    ? 'Du bist der Admin von Clips. Wähl einen Namen, dann kannst du loslegen.'
+    : 'Fast geschafft! Wähl noch einen Namen, dann bist du drin.';
   screen('screen-join');
   if (message) toast(message, true);
 }
@@ -264,20 +260,16 @@ async function join(e) {
   const name = cleanName($('join-name').value);
   const problem = nameProblem(name);
   if (problem) { toast(problem, true); return; }
-  const data = { joinedAt: serverTime() };
-  if (!isAdmin()) {
-    const code = $('join-code').value.toUpperCase().replace(/[^A-Z0-9]/g, '');
-    if (!code) { toast('Gib deinen Einladungscode ein.', true); return; }
-    data.code = code;
-  }
   try {
-    await claimName(name, data);
+    await claimName(name, { joinedAt: serverTime() });
     S.me = { name, nameKey: nameKey(name) };
-    history.replaceState(null, '', location.pathname);
     startApp();
   } catch (err) {
-    if (err.code === 'permission-denied') toast('Der Einladungscode stimmt nicht (oder die neuen Firestore-Regeln sind noch nicht veröffentlicht).', true);
-    else showError(err);
+    if (err.code !== 'permission-denied') { showError(err); return; }
+    const banned = await S.db.collection('clipsBanned').doc(myUid()).get().then(s => s.exists, () => false);
+    toast(banned
+      ? 'Der Admin hat dich aus Clips entfernt. Du kannst nicht wieder beitreten.'
+      : 'Beitreten hat nicht geklappt. Sind die neuen Firestore-Regeln schon veröffentlicht? (siehe CLIPS_SETUP.md)', true);
   }
 }
 
@@ -850,14 +842,19 @@ function renderGroup(box) {
   sec.append(ul);
   box.append(sec);
 
+  const share = el('section', 'group');
+  share.append(el('h3', null, 'Freunde einladen'));
+  share.append(el('p', 'dim small', 'Schick deinen Freunden einfach den Link. Wer sich anmeldet und einen Namen wählt, ist drin.'));
+  share.append(button('Link kopieren', () => copy(appLink()), 'primary'));
+  box.append(share);
+
   if (isAdmin()) {
-    const adm = el('section', 'group');
-    adm.append(el('h3', null, 'Freunde einladen'));
-    adm.append(el('p', 'dim small', 'Schick deinen Freunden den Link. Wer ihn hat, kann beitreten – lösch den Code, wenn alle drin sind.'));
-    const inv = el('ul', 'list');
-    adm.append(inv, button('Neuen Einladungslink erstellen', createInvite, 'primary'));
-    box.append(adm);
-    loadInvites(inv);
+    const ban = el('section', 'group');
+    ban.append(el('h3', null, 'Gesperrt'));
+    const ul = el('ul', 'list');
+    ban.append(ul);
+    box.append(ban);
+    loadBanned(ul);
   }
 
   const out = el('section', 'group');
@@ -865,34 +862,23 @@ function renderGroup(box) {
   box.append(out);
 }
 
-function inviteLink(code) {
-  return `${location.origin}${location.pathname}?code=${code}`;
+function appLink() {
+  return `${location.origin}${location.pathname}`;
 }
 
-async function loadInvites(ul) {
+async function loadBanned(ul) {
   try {
-    const snap = await S.db.collection('clipsInvites').get();
+    const snap = await S.db.collection('clipsBanned').get();
     ul.innerHTML = '';
     snap.forEach(d => {
       const li = el('li', 'row');
-      li.append(el('b', 'code grow', d.id),
-        button('Link kopieren', () => copy(inviteLink(d.id)), 'small'),
-        button('Löschen', async () => {
-          try { await d.ref.delete(); li.remove(); toast('Code gelöscht. Wer schon drin ist, bleibt drin.'); } catch (e) { showError(e); }
+      li.append(el('span', 'grow', d.data().name || 'Unbekannt'),
+        button('Entsperren', async () => {
+          try { await d.ref.delete(); li.remove(); toast(`${d.data().name} kann wieder beitreten.`); } catch (e) { showError(e); }
         }, 'small'));
       ul.append(li);
     });
-    if (snap.empty) ul.append(el('li', 'dim', 'Kein aktiver Einladungslink.'));
-  } catch (e) { showError(e); }
-}
-
-async function createInvite() {
-  let code = '';
-  for (let i = 0; i < 8; i++) code += CODE_ALPHABET[Math.floor(Math.random() * CODE_ALPHABET.length)];
-  try {
-    await S.db.collection('clipsInvites').doc(code).set({ createdAt: serverTime() });
-    await copy(inviteLink(code), 'Einladungslink erstellt und kopiert.');
-    renderProfile(myUid());
+    if (snap.empty) ul.append(el('li', 'dim', 'Niemand ist gesperrt.'));
   } catch (e) { showError(e); }
 }
 
@@ -916,7 +902,7 @@ async function setPhoto(file) {
 async function removeMember(uid, name, li) {
   if (li.dataset.armed !== '1') {
     li.dataset.armed = '1';
-    toast(`Nochmal auf „Entfernen“ tippen, um ${name} aus der Gruppe zu werfen.`);
+    toast(`Nochmal auf „Entfernen“ tippen, um ${name} aus der Gruppe zu werfen und zu sperren.`);
     setTimeout(() => { li.dataset.armed = ''; }, 4000);
     return;
   }
@@ -925,8 +911,10 @@ async function removeMember(uid, name, li) {
     batch.delete(S.db.collection('clipsMembers').doc(uid));
     const key = (S.members.get(uid) || {}).nameKey;
     if (key) batch.delete(names().doc(key));
+    // Sperren, sonst könnte die Person über den Link einfach wieder beitreten
+    batch.set(S.db.collection('clipsBanned').doc(uid), { name, at: serverTime() });
     await batch.commit();
-    toast(`${name} ist nicht mehr in der Gruppe. Lösch auch den Einladungscode, sonst kann ${name} wieder beitreten.`);
+    toast(`${name} ist raus und gesperrt. Entsperren kannst du unten im Profil.`);
   } catch (e) { showError(e); }
 }
 
