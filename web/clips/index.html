@@ -52,11 +52,11 @@
   <div id="view-feed" class="view">
     <div id="feed" class="feed"></div>
     <div id="feed-empty" class="feed-empty" hidden>
-      <p class="big">🎬</p>
+      <span class="big" data-icon="film"></span>
       <p>Noch keine Videos.</p>
       <button type="button" class="primary" data-go="upload">Erstes Video posten</button>
     </div>
-    <button type="button" id="feed-new" class="pill new-pill" hidden>↑ Neue Videos</button>
+    <button type="button" id="feed-new" class="pill new-pill" hidden><span data-icon="arrowUp"></span> Neue Videos</button>
   </div>
 
   <div id="view-upload" class="view scroll" hidden>
@@ -64,7 +64,7 @@
       <h2>Neues Video</h2>
       <label class="pick" id="upload-pick">
         <input id="upload-file" type="file" accept="video/*">
-        <span>🎥<br>Video auswählen oder aufnehmen</span>
+        <span><span class="pick-icon" data-icon="camera"></span><br>Video auswählen oder aufnehmen</span>
       </label>
       <video id="upload-preview" class="upload-preview" playsinline muted loop hidden></video>
       <p id="upload-info" class="dim small" hidden></p>
@@ -83,18 +83,18 @@
   </div>
 
   <nav class="tabbar">
-    <button type="button" class="tab" data-go="feed">🏠<span>Feed</span></button>
-    <button type="button" class="tab tab-plus" data-go="upload" aria-label="Video posten"><b>＋</b></button>
-    <button type="button" class="tab" data-go="profile">👤<span>Profil</span></button>
+    <button type="button" class="tab" data-go="feed"><span data-icon="home"></span><span>Feed</span></button>
+    <button type="button" class="tab tab-plus" data-go="upload" aria-label="Video posten"><b><span data-icon="plus"></span></b></button>
+    <button type="button" class="tab" data-go="profile"><span data-icon="user"></span><span>Profil</span></button>
   </nav>
 
   <!-- Videos eines Profils abspielen -->
   <div id="player" class="player" hidden>
     <div id="player-feed" class="feed"></div>
-    <button type="button" id="player-close" class="round close-btn" aria-label="Schließen">✕</button>
+    <button type="button" id="player-close" class="round close-btn" aria-label="Schließen"><span data-icon="close"></span></button>
   </div>
 
-  <button type="button" id="sound" class="round sound-btn" aria-label="Ton an/aus">🔇</button>
+  <button type="button" id="sound" class="round sound-btn" aria-label="Ton an/aus"><span data-icon="soundOff"></span></button>
 </section>
 
 <!-- Kommentare -->
@@ -102,7 +102,7 @@
   <div class="sheet">
     <header class="sheet-head">
       <b id="comments-title">Kommentare</b>
-      <button type="button" id="comments-close" class="link" aria-label="Schließen">✕</button>
+      <button type="button" id="comments-close" class="link" aria-label="Schließen"><span data-icon="close"></span></button>
     </header>
     <ul id="comments-list" class="comments-list"></ul>
     <form id="comments-form" class="row comment-form">

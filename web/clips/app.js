@@ -19,7 +19,7 @@
 
 const ADMIN_EMAIL = 'stark.liam2011@gmail.com';
 const CHUNK_BYTES = 900 * 1024;
-const MAX_CHUNKS = 40;
+const MAX_CHUNKS = 300;
 const FEED_PAGE = 60;
 const SEEN_AFTER_S = 2;      // so lange muss ein Video laufen, bis es als gesehen zählt
 const URL_CACHE = 8;
@@ -63,6 +63,29 @@ function button(text, onClick, cls) {
   b.type = 'button';
   b.onclick = onClick;
   return b;
+}
+
+// Symbole (statt Emojis): schlichte Strich-Icons, die überall gleich aussehen
+const ICONS = {
+  home: '<path d="M3 10.5 12 3l9 7.5"/><path d="M5 9.5V21h5v-6h4v6h5V9.5"/>',
+  user: '<circle cx="12" cy="8" r="4"/><path d="M4 21c0-4.4 3.6-7 8-7s8 2.6 8 7"/>',
+  plus: '<path d="M12 5v14M5 12h14"/>',
+  heart: '<path d="M12 20.5s-7.5-4.6-9.5-9.2C1.2 8.2 3.2 4.5 6.8 4.5c2.1 0 3.6 1.2 5.2 3 1.6-1.8 3.1-3 5.2-3 3.6 0 5.6 3.7 4.3 6.8-2 4.6-9.5 9.2-9.5 9.2z"/>',
+  comment: '<path d="M21 12a8 8 0 0 1-11.6 7.1L4 20.5l1.4-4.6A8 8 0 1 1 21 12z"/>',
+  trash: '<path d="M4 7h16M9 7V4h6v3M6 7l1 13h10l1-13M10 11v6M14 11v6"/>',
+  soundOn: '<path d="M4 9v6h4l5 4V5L8 9H4z"/><path d="M16.5 8.5a5 5 0 0 1 0 7M19 6a8.5 8.5 0 0 1 0 12"/>',
+  soundOff: '<path d="M4 9v6h4l5 4V5L8 9H4z"/><path d="m17 9 5 6M22 9l-5 6"/>',
+  play: '<path d="M7 4.5v15l13-7.5z"/>',
+  close: '<path d="M6 6l12 12M18 6 6 18"/>',
+  film: '<rect x="3" y="4" width="18" height="16" rx="2"/><path d="M7 4v16M17 4v16M3 9h4M3 15h4M17 9h4M17 15h4"/>',
+  camera: '<rect x="2.5" y="6" width="13" height="12" rx="2"/><path d="m15.5 10.5 6-3.5v10l-6-3.5z"/>',
+  arrowUp: '<path d="M12 19V5M6 11l6-6 6 6"/>',
+};
+
+function icon(name, cls = '') {
+  const t = document.createElement('template');
+  t.innerHTML = `<svg class="icon ${cls}" viewBox="0 0 24 24" aria-hidden="true">${ICONS[name]}</svg>`;
+  return t.content.firstChild;
 }
 
 function toast(text, isError = false) {
@@ -591,7 +614,8 @@ class Feed {
     video.loop = true;
     video.preload = 'auto';
     const spinner = el('div', 'spinner');
-    const paused = el('div', 'paused-icon', '▶');
+    const paused = el('div', 'paused-icon');
+    paused.append(icon('play', 'filled'));
     const fail = el('p', 'slide-error');
     const tap = el('div', 'tap-area');
 
@@ -604,11 +628,11 @@ class Feed {
     const actions = el('div', 'actions');
     const prof = button('', () => openProfile(s.data.owner), 'act');
     const like = button('', () => this.toggleLike(s), 'act like');
-    like.append(el('span', 'ico', '♥'), el('span', 'n'));
+    like.append(icon('heart', 'ico'), el('span', 'n'));
     const comment = button('', () => openComments(s.data), 'act');
-    comment.append(el('span', 'ico', '💬'), el('span', 'n'));
+    comment.append(icon('comment', 'ico'), el('span', 'n'));
     const del = button('', () => this.askDelete(s), 'act del');
-    del.append(el('span', 'ico', '🗑'), el('span', 'n', 'Löschen'));
+    del.append(icon('trash', 'ico'), el('span', 'n', 'Löschen'));
     actions.append(prof, like, comment, del);
 
     root.append(video, spinner, paused, fail, tap, meta, actions);
@@ -755,7 +779,8 @@ class Feed {
   }
 
   burst(s, e) {
-    const h = el('span', 'heart-burst', '♥');
+    const h = el('span', 'heart-burst');
+    h.append(icon('heart', 'filled'));
     const r = s.root.getBoundingClientRect();
     h.style.left = (e.clientX - r.left) + 'px';
     h.style.top = (e.clientY - r.top) + 'px';
@@ -803,7 +828,7 @@ class Feed {
 function setMuted(m) {
   S.muted = m;
   setMuted.touched = true;
-  $('sound').textContent = m ? '🔇' : '🔊';
+  $('sound').replaceChildren(icon(m ? 'soundOff' : 'soundOn'));
   for (const f of [S.feed, S.player]) {
     const s = f && f.current && f.slides.get(f.current);
     if (s) s.video.muted = m;
@@ -815,13 +840,18 @@ async function deleteVideo(v, quiet = false) {
   try {
     if (!quiet) toast('Video wird gelöscht …');
     // Erst die Unterdokumente, sonst können die Regeln den Besitzer nicht mehr prüfen
-    const batch = S.db.batch();
-    for (let i = 0; i < v.chunks; i++) batch.delete(ref.collection('chunks').doc(chunkId(i)));
+    const refs = [];
+    for (let i = 0; i < v.chunks; i++) refs.push(ref.collection('chunks').doc(chunkId(i)));
     for (const sub of ['likes', 'comments']) {
       const snap = await ref.collection(sub).get();
-      snap.forEach(d => batch.delete(d.ref));
+      snap.forEach(d => refs.push(d.ref));
     }
-    await batch.commit();
+    // Ein Batch darf höchstens 500 Schreibvorgänge haben
+    for (let i = 0; i < refs.length; i += 400) {
+      const batch = S.db.batch();
+      refs.slice(i, i + 400).forEach(r => batch.delete(r));
+      await batch.commit();
+    }
     await ref.delete();
     if (quiet) return;
     toast('Video gelöscht.');
@@ -910,7 +940,9 @@ async function renderProfile(uid) {
     cell.type = 'button';
     if (v.thumb) cell.style.backgroundImage = `url("${v.thumb}")`;
     if (v.ready) {
-      cell.append(el('span', 'cell-likes', `♥ ${count(v.likes)}`));
+      const likes = el('span', 'cell-likes');
+      likes.append(icon('heart', 'filled'), document.createTextNode(count(v.likes)));
+      cell.append(likes);
       cell.onclick = () => openPlayer(list.filter(x => x.ready), v.id);
     } else {
       cell.classList.add('broken');
@@ -1059,7 +1091,8 @@ function openComments(v) {
         body.append(top, el('p', 'comment-text', c.text));
         li.append(avatar(c.uid), body);
         if (c.uid === myUid() || v.owner === myUid() || isAdmin()) {
-          const del = button('✕', () => deleteComment(v, d.id), 'link small');
+          const del = button('', () => deleteComment(v, d.id), 'link small');
+          del.append(icon('close'));
           del.setAttribute('aria-label', 'Kommentar löschen');
           li.append(del);
         }
@@ -1113,10 +1146,6 @@ async function pickFile() {
   if (!file) return;
   try {
     const probe = await probeVideo(file);
-    if (isFinite(probe.duration) && probe.duration > MAX_SECONDS + 0.5) {
-      disposeVideo(probe.el);
-      throw new Error(`Das Video ist ${minutes(probe.duration)} Minuten lang. Erlaubt sind höchstens ${MAX_SECONDS / 60} Minuten – schneide es vorher kürzer.`);
-    }
     if (needsCompression(probe) && !recorderType() && file.size > MAX_BYTES) {
       disposeVideo(probe.el);
       throw new Error('Das Video ist zu groß, und dein Browser kann es nicht verkleinern. Probier es in Chrome oder Safari.');
@@ -1176,7 +1205,7 @@ async function finishUpload(prepared, duration) {
   let ref = null;
   try {
     const { blob, type } = await prepared;
-    if (blob.size > MAX_BYTES) throw new Error(`Das Video ist auch verkleinert noch ${(blob.size / 1024 / 1024).toFixed(0)} MB groß. Nimm ein kürzeres.`);
+    if (blob.size > MAX_BYTES) throw new Error(`Das Video ist auch verkleinert noch ${(blob.size / 1024 / 1024).toFixed(0)} MB groß. Das ist zu groß für die Datenbank – schneide es etwas kürzer.`);
     progress('Vorschaubild …', 0);
     const thumb = await makeThumb(blob).catch(() => null);
     const chunks = Math.ceil(blob.size / CHUNK_BYTES);
@@ -1197,7 +1226,7 @@ async function finishUpload(prepared, duration) {
     progress('Fertig!', 1);
     resetUpload();
     S.upload.busy = false;
-    toast('Video gepostet 🎉');
+    toast('Video gepostet!');
     go('feed');
     S.feed.root.scrollTo({ top: 0 });
   } catch (err) {
@@ -1245,5 +1274,8 @@ document.addEventListener('visibilitychange', () => {
     else if (f === S.player || (S.view === 'feed' && !S.player)) f.resume();
   }
 });
+
+// Platzhalter <span data-icon="…"> im HTML durch die Symbole ersetzen
+for (const e of document.querySelectorAll('[data-icon]')) e.replaceWith(icon(e.dataset.icon, e.className));
 
 init();

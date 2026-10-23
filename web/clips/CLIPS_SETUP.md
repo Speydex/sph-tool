@@ -64,12 +64,14 @@ gespeichert und gilt deshalb auf allen Geräten.
 Die Videos liegen direkt in der Firestore-Datenbank, aufgeteilt in Stücke
 unter 1 MB. Dafür braucht man keinen kostenpflichtigen Firebase-Tarif.
 
-- Videos dürfen höchstens **5 Minuten** lang sein.
+- Es gibt **keine feste Längengrenze**. Technisch passen bis etwa 260 MB in
+  die Datenbank, das sind nach dem Verkleinern gut 60 Minuten. Lange Videos
+  brauchen beim Abspielen länger, bis sie starten, weil erst alles geladen wird.
 - Große Videos (z. B. vom Handy) werden vor dem Hochladen **im Browser
   verkleinert** (max. 960 px, etwa 1,3 MBit/s, lange Videos etwas weniger). Das dauert so lange wie das
   Video. Die Seite muss dabei offen bleiben. Kleine mp4/webm-Dateien
   (bis 8 MB) werden direkt hochgeladen.
 - Das kostenlose Kontingent: 1 GB Speicher insgesamt, etwa 10 GB Download pro
-  Monat. Ein Video hat nach dem Verkleinern meist 3–10 MB (5 Minuten: bis 30 MB). Für eine
+  Monat. Ein Video hat nach dem Verkleinern meist 3–10 MB (lange Videos: etwa 4 MB pro Minute). Für eine
   Freundesgruppe reicht das, für hunderte Videos nicht. Wenn es knapp wird:
   alte Videos löschen.

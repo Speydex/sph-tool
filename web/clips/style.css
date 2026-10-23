@@ -74,6 +74,13 @@ label { font-weight: 600; font-size: 14px; }
 .grow { flex: 1; min-width: 0; }
 .dim { color: var(--text-dim); }
 .small { font-size: 14px; }
+.icon {
+  width: 1em; height: 1em; flex: none;
+  fill: none; stroke: currentColor; stroke-width: 2;
+  stroke-linecap: round; stroke-linejoin: round;
+  vertical-align: -0.15em;
+}
+.icon.filled { fill: currentColor; stroke: none; }
 .sr-only { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); }
 .code, .code-input { font-family: ui-monospace, Menlo, monospace; letter-spacing: .12em; text-transform: uppercase; }
 .offscreen { position: fixed; left: -9999px; top: 0; width: 2px; height: 2px; opacity: 0; pointer-events: none; }
@@ -134,8 +141,8 @@ label { font-weight: 600; font-size: 14px; }
 .paused-icon {
   position: absolute; left: 50%; top: 50%;
   transform: translate(-50%, -50%);
-  font-size: 64px; opacity: .8; pointer-events: none;
-  text-shadow: 0 2px 12px rgba(0, 0, 0, .5);
+  font-size: 64px; opacity: .8; pointer-events: none; color: #fff;
+  filter: drop-shadow(0 2px 8px rgba(0, 0, 0, .5));
 }
 .spinner {
   position: absolute; left: 50%; top: 50%;
@@ -157,7 +164,7 @@ label { font-weight: 600; font-size: 14px; }
   transform: translate(-50%, -50%);
   pointer-events: none;
   animation: burst .8s ease-out forwards;
-  text-shadow: 0 4px 20px rgba(0, 0, 0, .35);
+  filter: drop-shadow(0 4px 14px rgba(0, 0, 0, .35));
 }
 @keyframes burst {
   0% { transform: translate(-50%, -50%) scale(.3); opacity: 0; }
@@ -186,10 +193,10 @@ label { font-weight: 600; font-size: 14px; }
   text-shadow: 0 1px 3px rgba(0, 0, 0, .7);
   min-width: 56px;
 }
-.act .ico { font-size: 30px; line-height: 1.1; }
-.act.like .ico { color: #fff; transition: transform .15s; }
-.act.like.on .ico { color: var(--accent); transform: scale(1.12); }
-.act.del .ico { font-size: 24px; }
+.act .ico { font-size: 32px; margin-bottom: 2px; filter: drop-shadow(0 1px 3px rgba(0, 0, 0, .6)); }
+.act.like .ico { transition: transform .15s, fill .15s; }
+.act.like.on .ico { color: var(--accent); fill: currentColor; transform: scale(1.12); }
+.act.del .ico { font-size: 26px; }
 .act.del.armed .n { color: #ff8080; }
 
 .avatar {
@@ -216,19 +223,21 @@ label { font-weight: 600; font-size: 14px; }
   display: flex; flex-direction: column; align-items: center; justify-content: center;
   color: #fff; text-align: center; padding: 16px;
 }
-.feed-empty .big { font-size: 56px; margin: 0; }
+.feed-empty .big { font-size: 56px; margin: 0 0 8px; stroke-width: 1.5; }
 .pill {
   position: absolute; left: 50%; top: max(12px, env(safe-area-inset-top));
   transform: translateX(-50%);
   border: 0; border-radius: 999px;
   background: rgba(255, 255, 255, .92); color: #111; font-weight: 700;
   box-shadow: 0 4px 16px rgba(0, 0, 0, .3);
+  display: flex; align-items: center; gap: 6px;
 }
 .round {
   position: absolute;
   width: 40px; height: 40px; padding: 0;
   border-radius: 50%; border: 0;
-  background: rgba(0, 0, 0, .45); color: #fff; font-size: 18px;
+  display: grid; place-items: center;
+  background: rgba(0, 0, 0, .45); color: #fff; font-size: 20px;
 }
 .sound-btn { right: 12px; top: max(12px, env(safe-area-inset-top)); z-index: 3; }
 .close-btn { left: 12px; top: max(12px, env(safe-area-inset-top)); z-index: 2; }
@@ -249,7 +258,7 @@ label { font-weight: 600; font-size: 14px; }
 .tab {
   border: 0; background: none; color: #999;
   display: flex; flex-direction: column; align-items: center;
-  font-size: 20px; padding: 4px 18px; line-height: 1.1;
+  font-size: 24px; padding: 4px 18px; line-height: 1.1; gap: 2px;
 }
 .tab span { font-size: 11px; font-weight: 600; }
 .tab.active { color: #fff; }
@@ -257,7 +266,7 @@ label { font-weight: 600; font-size: 14px; }
   display: grid; place-items: center;
   width: 48px; height: 32px;
   border-radius: 9px;
-  background: #fff; color: #000; font-size: 24px;
+  background: #fff; color: #000; font-size: 22px;
   box-shadow: -3px 0 0 #25f4ee, 3px 0 0 var(--accent);
 }
 
@@ -270,6 +279,7 @@ label { font-weight: 600; font-size: 14px; }
   text-align: center; color: var(--text-dim); font-weight: 600;
   cursor: pointer;
 }
+.pick-icon { font-size: 36px; stroke-width: 1.6; }
 .pick input { position: absolute; inset: 0; opacity: 0; cursor: pointer; }
 .upload-preview { width: 100%; max-height: 50vh; background: #000; border-radius: var(--radius); }
 .progress .bar { height: 8px; border-radius: 4px; background: var(--border); overflow: hidden; }
@@ -294,6 +304,7 @@ label { font-weight: 600; font-size: 14px; }
 }
 .cell-likes {
   position: absolute; left: 6px; bottom: 4px;
+  display: flex; align-items: center; gap: 3px;
   color: #fff; font-size: 13px; font-weight: 700;
   text-shadow: 0 1px 3px rgba(0, 0, 0, .8);
 }
