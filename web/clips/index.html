@@ -5,6 +5,13 @@
 <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
 <meta http-equiv="Cache-Control" content="no-cache, no-store, must-revalidate">
 <meta name="theme-color" content="#000000">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="apple-mobile-web-app-title" content="Clips">
+<link rel="manifest" href="manifest.webmanifest">
+<link rel="icon" type="image/png" href="icons/favicon.png">
+<link rel="apple-touch-icon" href="icons/apple-touch-icon.png">
 <title>Clips</title>
 <link rel="stylesheet" href="style.css">
 </head>
@@ -97,6 +104,10 @@
     </div>
   </div>
 
+  <div id="view-activity" class="view scroll" hidden>
+    <div id="activity" class="page"></div>
+  </div>
+
   <div id="view-profile" class="view scroll" hidden>
     <div id="profile" class="page"></div>
   </div>
@@ -105,6 +116,7 @@
     <button type="button" class="tab" data-go="feed"><span data-icon="home"></span><span>Feed</span></button>
     <button type="button" class="tab" data-go="search"><span data-icon="search"></span><span>Suche</span></button>
     <button type="button" class="tab tab-plus" data-go="upload" aria-label="Video posten"><b><span data-icon="plus"></span></b></button>
+    <button type="button" class="tab" data-go="activity"><span data-icon="bell"></span><span>Aktivität</span></button>
     <button type="button" class="tab" data-go="profile"><span data-icon="user"></span><span>Profil</span></button>
   </nav>
 
@@ -125,6 +137,10 @@
       <button type="button" id="comments-close" class="link" aria-label="Schließen"><span data-icon="close"></span></button>
     </header>
     <ul id="comments-list" class="comments-list"></ul>
+    <div id="comments-reply" class="reply-bar" hidden>
+      <span id="comments-reply-text" class="grow"></span>
+      <button type="button" id="comments-reply-cancel" class="link small" aria-label="Antwort abbrechen"><span data-icon="close"></span></button>
+    </div>
     <form id="comments-form" class="row comment-form">
       <label for="comments-input" class="sr-only">Kommentar</label>
       <input id="comments-input" class="grow" type="text" maxlength="300" placeholder="Kommentar schreiben …" autocomplete="off">

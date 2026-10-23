@@ -66,6 +66,22 @@ Die automatische Prüfung läuft im Browser der Person, die etwas postet. Sie
 erkennt nicht alles und kann von jemandem mit Programmierkenntnissen umgangen
 werden – deshalb gibt es zusätzlich das Melden.
 
+## Aktivität, Kommentare, #hashtags
+
+- **Aktivität** (Glocke unten): wer dein Video geliket oder kommentiert hat,
+  wer dir antwortet, dich mit @Name erwähnt, deinen Kommentar liket oder dir
+  neu folgt. Eine Zahl am Tab zeigt, wie viel neu ist.
+- **Kommentare:** Auf Kommentare antworten (Antworten stehen eingerückt
+  darunter) und Kommentare liken.
+- **#hashtags und @Namen** in Beschreibungen und Kommentaren sind anklickbar:
+  #hashtag öffnet die Suche, @Name das Profil.
+
+## Als App installieren
+
+Im Profil steht unter **Clips als App**, wie man Clips auf den Home-Bildschirm
+legt (iPhone/iPad: Teilen → „Zum Home-Bildschirm“, Android: „Installieren“).
+Dann startet Clips im Vollbild mit eigenem Symbol.
+
 ## Suchen und Folgen
 
 - Unten auf **Suche**: Kanäle (Namen) und Videos (Beschreibung, #hashtags oder
