@@ -50,7 +50,8 @@
 //   Person, damit kein Name doppelt vorkommt. Man kann nur einen Namen
 //   belegen, den man gleichzeitig im eigenen Profil einträgt.
 // - clipsVideos/{videoId}: Videos samt Unterdokumenten (chunks = das Video in
-//   Stücken unter 1 MB, likes, comments). Nur Mitglieder sehen sie. Posten
+//   Stücken unter 1 MB, likes, comments) oder eingebettete TikTok-/YouTube-
+//   Links (ohne Stücke). Nur Mitglieder sehen sie. Posten
 //   und Löschen darf nur der Besitzer (Löschen auch der Admin). Der
 //   Like-Zähler darf sich nur zusammen mit dem eigenen Like um genau 1 ändern.
 
@@ -194,22 +195,38 @@ service cloud.firestore {
         return request.resource.data.diff(resource.data).affectedKeys();
       }
       allow read: if clipsMember();
+      // Entweder ein hochgeladenes Video (in Stücken) oder ein eingebetteter
+      // TikTok-/YouTube-Link (ohne Stücke, sofort fertig)
+      function uploadedVideo() {
+        return request.resource.data.keys().hasOnly(['owner', 'caption', 'type', 'size', 'chunks', 'duration',
+                                                     'thumb', 'likes', 'comments', 'ready', 'createdAt'])
+          && request.resource.data.type is string && request.resource.data.type.size() <= 60
+          && request.resource.data.size is int
+          && request.resource.data.chunks is int
+          && request.resource.data.chunks >= 1 && request.resource.data.chunks <= 300
+          && request.resource.data.duration is number
+          && request.resource.data.ready == false;
+      }
+      function linkedVideo() {
+        return request.resource.data.keys().hasOnly(['owner', 'caption', 'kind', 'provider', 'embedId', 'url',
+                                                     'thumb', 'chunks', 'likes', 'comments', 'ready', 'createdAt'])
+          && request.resource.data.kind == 'link'
+          && request.resource.data.provider in ['tiktok', 'youtube']
+          && request.resource.data.embedId is string
+          && request.resource.data.embedId.matches('[A-Za-z0-9_-]{1,40}')
+          && request.resource.data.url is string && request.resource.data.url.size() <= 500
+          && request.resource.data.chunks == 0
+          && request.resource.data.ready == true;
+      }
       allow create: if clipsMember()
-        && request.resource.data.keys().hasOnly(['owner', 'caption', 'type', 'size', 'chunks', 'duration',
-                                                 'thumb', 'likes', 'comments', 'ready', 'createdAt'])
         && request.resource.data.owner == request.auth.uid
         && request.resource.data.caption is string && request.resource.data.caption.size() <= 300
-        && request.resource.data.type is string && request.resource.data.type.size() <= 60
-        && request.resource.data.size is int
-        && request.resource.data.chunks is int
-        && request.resource.data.chunks >= 1 && request.resource.data.chunks <= 300
-        && request.resource.data.duration is number
         && (request.resource.data.thumb == null
             || (request.resource.data.thumb is string && request.resource.data.thumb.size() <= 60000))
         && request.resource.data.likes == 0
         && request.resource.data.comments == 0
-        && request.resource.data.ready == false
-        && request.resource.data.createdAt == request.time;
+        && request.resource.data.createdAt == request.time
+        && (uploadedVideo() || linkedVideo());
       allow update: if clipsMember() && (
           (request.auth.uid == resource.data.owner
             && changed().hasOnly(['caption', 'ready'])

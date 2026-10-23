@@ -11,6 +11,8 @@
  *   clipsNames/{nameKey}            { uid }                     sorgt dafür, dass jeder Name nur einmal vorkommt
  *   clipsVideos/{id}                { owner, caption, type, size, chunks, duration,
  *                                     thumb, likes, comments, ready, createdAt }
+ *                                   oder per Link: { owner, caption, kind: 'link', provider,
+ *                                     embedId, url, thumb, chunks: 0, likes, comments, ready, createdAt }
  *   clipsVideos/{id}/chunks/{00..}  { data: Bytes }             das Video in Stücken < 1 MB
  *   clipsVideos/{id}/likes/{uid}    { at }
  *   clipsVideos/{id}/comments/{id}  { uid, text, createdAt }
@@ -40,7 +42,7 @@ const S = {
   liked: new Map(),         // videoId -> true/false (nur was schon geladen wurde)
   urls: new Map(),          // videoId -> Promise<objectURL>, älteste zuerst
   muted: true,
-  upload: { probe: null, busy: false },
+  upload: { probe: null, link: null, busy: false },
   comments: { video: null, unsub: null },
 };
 
@@ -601,6 +603,114 @@ async function loadLiked(id) {
   return !!S.liked.get(id);
 }
 
+// ---------- Videos per Link (TikTok, YouTube) ----------
+// Solche Videos werden nicht in Clips gespeichert, sondern eingebettet: Sie
+// laufen über den Player von TikTok bzw. YouTube.
+const PROVIDERS = { tiktok: 'TikTok', youtube: 'YouTube' };
+
+function parseVideoLink(raw) {
+  let u;
+  try { u = new URL(raw.trim()); } catch (e) { return null; }
+  const host = u.hostname.replace(/^(www\.|m\.|music\.)/, '');
+  const parts = u.pathname.split('/').filter(Boolean);
+  if (host === 'youtu.be' && parts[0]) return { provider: 'youtube', id: parts[0] };
+  if (host === 'youtube.com' || host === 'youtube-nocookie.com') {
+    const id = u.searchParams.get('v') || (['shorts', 'embed', 'live'].includes(parts[0]) ? parts[1] : null);
+    return id ? { provider: 'youtube', id } : null;
+  }
+  if (host === 'tiktok.com' || host.endsWith('.tiktok.com')) {
+    const i = parts.indexOf('video');
+    const id = i >= 0 ? parts[i + 1] : (parts[0] === 'player' || parts[0] === 'embed' ? parts[parts.length - 1] : null);
+    // Kurzlinks (vm.tiktok.com/…) werden unten über TikTok aufgelöst
+    return { provider: 'tiktok', id: id && /^\d+$/.test(id) ? id : null };
+  }
+  return null;
+}
+
+async function resolveVideoLink(raw) {
+  const link = parseVideoLink(raw);
+  if (!link) throw new Error('Das ist kein TikTok- oder YouTube-Link.');
+  const url = raw.trim();
+  let info = {};
+  try {
+    const api = link.provider === 'youtube'
+      ? `https://www.youtube.com/oembed?format=json&url=${encodeURIComponent(url)}`
+      : `https://www.tiktok.com/oembed?url=${encodeURIComponent(url)}`;
+    const res = await fetch(api);
+    if (res.ok) info = await res.json();
+  } catch (e) { console.warn('oEmbed nicht erreichbar', e); }
+  const id = link.id || info.embed_product_id;
+  if (!id || !/^[A-Za-z0-9_-]{1,40}$/.test(id)) throw new Error('Zu diesem Link wurde kein Video gefunden. Ist das Video öffentlich?');
+  const thumb = link.provider === 'youtube' ? `https://i.ytimg.com/vi/${id}/hqdefault.jpg` : (info.thumbnail_url || null);
+  return { provider: link.provider, embedId: id, url: url.slice(0, 500), title: info.title || '', thumb };
+}
+
+function embedUrl(v) {
+  if (v.provider === 'youtube') {
+    return `https://www.youtube-nocookie.com/embed/${v.embedId}?autoplay=1&mute=1&playsinline=1&loop=1&playlist=${v.embedId}`
+      + '&controls=0&rel=0&modestbranding=1&enablejsapi=1';
+  }
+  return `https://www.tiktok.com/player/v1/${v.embedId}?autoplay=1&muted=1&loop=1&controls=0&progress_bar=0`
+    + '&play_button=0&volume_control=0&fullscreen_button=0&timestamp=0&music_info=0&description=0&rel=0'
+    + '&native_context_menu=0&closed_caption=0';
+}
+
+// Tut für den Feed so, als wäre es ein <video>: play, pause, muted, src.
+// Gesteuert wird der fremde Player per postMessage.
+class EmbedPlayer {
+  constructor(v) {
+    this.v = v;
+    this.el = el('iframe', 'embed');
+    this.el.setAttribute('allow', 'autoplay; encrypted-media; picture-in-picture; fullscreen');
+    this.el.setAttribute('referrerpolicy', 'strict-origin-when-cross-origin');
+    this.el.title = PROVIDERS[v.provider] + '-Video';
+    this.embedUrl = embedUrl(v);
+    this.paused = true;
+    this._muted = true;
+    this.onSeen = null;
+    this.el.addEventListener('load', () => setTimeout(() => this.sync(), 800));
+  }
+
+  send(cmd) {
+    const w = this.el.contentWindow;
+    if (!w || !this.el.getAttribute('src')) return;
+    if (this.v.provider === 'youtube') {
+      const func = { play: 'playVideo', pause: 'pauseVideo', mute: 'mute', unMute: 'unMute' }[cmd];
+      w.postMessage(JSON.stringify({ event: 'command', func, args: [] }), '*');
+    } else {
+      w.postMessage({ type: cmd, value: null, 'x-tiktok-player': true }, '*');
+    }
+  }
+
+  sync() {
+    this.send(this.paused ? 'pause' : 'play');
+    this.send(this._muted ? 'mute' : 'unMute');
+  }
+
+  get muted() { return this._muted; }
+  set muted(m) { this._muted = m; this.send(m ? 'mute' : 'unMute'); }
+  set src(url) { this.el.src = url; }
+  getAttribute(name) { return this.el.getAttribute(name); }
+  removeAttribute(name) { this.el.removeAttribute(name); clearTimeout(this.seenTimer); }
+  load() { /* nichts zu tun, removeAttribute('src') hat den Player schon entladen */ }
+  set poster(_) { /* Vorschaubild zeigt der fremde Player selbst */ }
+  get poster() { return ''; }
+
+  play() {
+    this.paused = false;
+    this.send('play');
+    clearTimeout(this.seenTimer);
+    this.seenTimer = setTimeout(() => { if (!this.paused && this.onSeen) this.onSeen(); }, 3000);
+    return Promise.resolve();
+  }
+
+  pause() {
+    this.paused = true;
+    clearTimeout(this.seenTimer);
+    this.send('pause');
+  }
+}
+
 // ---------- Feed (TikTok-artiges Hochwischen) ----------
 class Feed {
   constructor(root, { onNearEnd } = {}) {
@@ -668,11 +778,14 @@ class Feed {
   makeSlide(v) {
     const root = el('div', 'slide');
     root.dataset.id = v.id;
-    const video = el('video');
-    video.playsInline = true;
-    video.setAttribute('playsinline', '');
-    video.loop = true;
-    video.preload = 'auto';
+    const embed = v.kind === 'link';
+    const video = embed ? new EmbedPlayer(v) : el('video');
+    if (!embed) {
+      video.playsInline = true;
+      video.setAttribute('playsinline', '');
+      video.loop = true;
+      video.preload = 'auto';
+    }
     const spinner = el('div', 'spinner');
     const paused = el('div', 'paused-icon');
     paused.append(icon('play', 'filled'));
@@ -695,8 +808,13 @@ class Feed {
     del.append(icon('trash', 'ico'), el('span', 'n', 'Löschen'));
     actions.append(prof, like, comment, del);
 
-    root.append(video, spinner, paused, fail, tap, meta, actions);
-    const s = { root, video, spinner, paused, fail, who, when, caption, prof, like, comment, del, data: v };
+    root.append(embed ? video.el : video, spinner, paused, fail, tap, meta, actions);
+    const s = { root, video, embed, spinner, paused, fail, who, when, caption, prof, like, comment, del, data: v };
+    if (embed) {
+      video.onSeen = () => {
+        if (!s.counted) { s.counted = true; markSeen(v.id); }
+      };
+    }
 
     // Einmal tippen = Pause, zweimal = Like
     let lastTap = 0;
@@ -713,6 +831,16 @@ class Feed {
       lastTap = now;
       single = setTimeout(() => this.togglePause(s), 300);
     });
+    if (!embed) this.listenVideo(s);
+    spinner.hidden = true;
+    paused.hidden = true;
+    fail.hidden = true;
+    this.fill(s);
+    return s;
+  }
+
+  listenVideo(s) {
+    const { video, spinner, paused } = s;
     video.addEventListener('waiting', () => { spinner.hidden = false; });
     video.addEventListener('timeupdate', () => {
       if (s.counted || !video.duration) return;
@@ -722,18 +850,13 @@ class Feed {
       }
     });
     video.addEventListener('playing', () => { spinner.hidden = true; paused.hidden = true; });
-    spinner.hidden = true;
-    paused.hidden = true;
-    fail.hidden = true;
-    this.fill(s);
-    return s;
   }
 
   fill(s) {
     const v = s.data;
     if (v.thumb && s.video.poster !== v.thumb) s.video.poster = v.thumb;
     s.who.textContent = '@' + nameOf(v.owner);
-    s.when.textContent = ' · ' + ago(v.createdAt);
+    s.when.textContent = ' · ' + ago(v.createdAt) + (s.embed ? ' · ' + PROVIDERS[v.provider] : '');
     s.caption.textContent = v.caption || '';
     s.caption.hidden = !v.caption;
     s.prof.replaceChildren(avatar(v.owner, 'big'));
@@ -764,7 +887,7 @@ class Feed {
     const idx = this.videos.findIndex(v => v.id === id);
     if (idx >= this.videos.length - 3 && this.onNearEnd) this.onNearEnd();
     // Nachbarn schon mal vorladen
-    for (const n of [this.videos[idx + 1], this.videos[idx - 1]]) if (n) videoUrl(n).catch(() => {});
+    for (const n of [this.videos[idx + 1], this.videos[idx - 1]]) if (n && n.kind !== 'link') videoUrl(n).catch(() => {});
     // Weit entfernte Videos aus dem Speicher werfen
     for (const [sid, s] of this.slides) {
       const i = this.videos.findIndex(v => v.id === sid);
@@ -782,7 +905,7 @@ class Feed {
     if (!s.video.getAttribute('src')) {
       s.spinner.hidden = false;
       try {
-        const url = await videoUrl(s.data);
+        const url = s.embed ? s.video.embedUrl : await videoUrl(s.data);
         if (this.current !== s.data.id) return;
         s.video.src = url;
       } catch (e) {
@@ -1106,6 +1229,7 @@ function videoCell(v, onClick, withName = false) {
   likes.append(icon('heart', 'filled'), document.createTextNode(count(v.likes)));
   cell.append(likes);
   if (withName) cell.append(el('span', 'cell-name', '@' + nameOf(v.owner)));
+  if (v.kind === 'link') cell.append(el('span', 'cell-provider', PROVIDERS[v.provider]));
   if (v.caption) cell.title = v.caption;
   cell.onclick = onClick;
   return cell;
@@ -1333,8 +1457,72 @@ function progress(step, part) {
 
 // Der erste Teil läuft absichtlich ohne await: Das Verkleinern spielt das
 // Video mit Ton ab, und das erlaubt der Browser nur direkt nach dem Tippen.
+// Link einfügen: erkennen, Vorschau zeigen, Posten freischalten
+async function pickLink() {
+  const raw = $('upload-link').value.trim();
+  const box = $('link-preview');
+  S.upload.link = null;
+  box.hidden = true;
+  if (!raw) { $('upload-submit').disabled = !S.upload.probe; return; }
+  // Ein Link ersetzt eine ausgewählte Datei
+  if (S.upload.probe) { disposeVideo(S.upload.probe.el); S.upload.probe = null; }
+  $('upload-file').value = '';
+  $('upload-preview').hidden = true;
+  $('upload-info').hidden = true;
+  $('upload-submit').disabled = true;
+  const token = (pickLink.token = (pickLink.token || 0) + 1);
+  box.replaceChildren(el('p', 'dim small', 'Link wird geprüft …'));
+  box.hidden = false;
+  try {
+    const link = await resolveVideoLink(raw);
+    if (token !== pickLink.token) return;
+    S.upload.link = link;
+    box.innerHTML = '';
+    if (link.thumb) {
+      const img = el('img', 'link-thumb');
+      img.src = link.thumb;
+      img.alt = '';
+      box.append(img);
+    }
+    const text = el('div', 'link-text');
+    text.append(el('b', null, `${PROVIDERS[link.provider]}-Video erkannt`), el('span', 'dim small', link.title || link.url));
+    box.append(text);
+    if (!$('upload-caption').value.trim() && link.title) $('upload-caption').value = link.title.slice(0, 150);
+    $('upload-submit').disabled = false;
+  } catch (e) {
+    if (token !== pickLink.token) return;
+    box.replaceChildren(el('p', 'error-text small', e.message));
+  }
+}
+
+async function postLink() {
+  const link = S.upload.link;
+  if (!link || S.upload.busy) return;
+  S.upload.busy = true;
+  $('upload-submit').disabled = true;
+  try {
+    const ref = videos().doc();
+    S.wantTop = ref.id;
+    await ref.set({
+      owner: myUid(), caption: $('upload-caption').value.trim().slice(0, 150),
+      kind: 'link', provider: link.provider, embedId: link.embedId, url: link.url, thumb: link.thumb,
+      chunks: 0, likes: 0, comments: 0, ready: true, createdAt: serverTime(),
+    });
+    resetUpload();
+    S.upload.busy = false;
+    toast('Video gepostet!');
+    go('feed');
+    S.feed.root.scrollTo({ top: 0 });
+  } catch (e) {
+    S.upload.busy = false;
+    $('upload-submit').disabled = false;
+    showError(e);
+  }
+}
+
 function postVideo(e) {
   e.preventDefault();
+  if (S.upload.link) { postLink(); return; }
   const probe = S.upload.probe;
   if (!probe || S.upload.busy) return;
   S.upload.probe = null;
@@ -1392,6 +1580,9 @@ async function finishUpload(prepared, duration) {
 }
 
 function resetUpload(keepCaption = false) {
+  S.upload.link = null;
+  $('upload-link').value = '';
+  $('link-preview').hidden = true;
   $('upload-file').disabled = false;
   $('upload-file').value = '';
   if (!keepCaption) $('upload-caption').value = '';
@@ -1421,7 +1612,14 @@ $('sound').onclick = () => setMuted(!S.muted);
 $('comments-close').onclick = closeComments;
 $('comments').onclick = (e) => { if (e.target === $('comments')) closeComments(); };
 $('comments-form').onsubmit = sendComment;
-$('upload-file').onchange = pickFile;
+$('upload-file').onchange = () => {
+  // Eine Datei ersetzt einen eingefügten Link
+  S.upload.link = null;
+  $('upload-link').value = '';
+  $('link-preview').hidden = true;
+  pickFile();
+};
+$('upload-link').oninput = () => { clearTimeout(pickLink.timer); pickLink.timer = setTimeout(pickLink, 400); };
 $('upload-form').onsubmit = postVideo;
 document.addEventListener('visibilitychange', () => {
   if (document.hidden) flushSeen();

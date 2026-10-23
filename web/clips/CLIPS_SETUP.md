@@ -32,6 +32,15 @@ kann beitreten. Wenn jemand drin ist, der nicht reingehört: im Profil unter
 **Gruppe** auf **Entfernen** tippen. Die Person wird dann gesperrt und kann nicht
 wieder beitreten. Unter **Gesperrt** kannst du die Sperre wieder aufheben.
 
+## Videos per Link (TikTok, YouTube)
+
+Beim Posten kann man statt einer Datei einen **TikTok- oder YouTube-Link**
+einfügen (auch YouTube Shorts und TikTok-Kurzlinks). Das Video wird nicht in
+Clips gespeichert, sondern im Feed **eingebettet** und vom Player von TikTok
+bzw. YouTube abgespielt. Es braucht deshalb keinen Speicherplatz. Likes,
+Kommentare und Folgen funktionieren wie bei normalen Videos. Wird das Video bei
+TikTok/YouTube gelöscht oder privat gestellt, läuft es auch in Clips nicht mehr.
+
 ## Suchen und Folgen
 
 - Unten auf **Suche**: Kanäle (Namen) und Videos (Beschreibung, #hashtags oder
