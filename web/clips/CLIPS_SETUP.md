@@ -21,22 +21,34 @@ plus die neuen Clips-Regeln. Solange sie nicht veröffentlicht sind, zeigt Clips
 ## 2. Gruppe starten
 
 1. `…/clips/` öffnen und mit **stark.liam2011@gmail.com** anmelden. Dieses
-   Konto ist der Admin und braucht keinen Einladungscode.
+   Konto ist der Admin.
 2. Namen wählen → **Beitreten**.
-3. Unten auf **Profil** → **Neuen Einladungslink erstellen**. Der Link wird
-   kopiert. Schick ihn deinen Freunden.
+3. Unten auf **Profil** → **Link kopieren** und den Link deinen Freunden schicken.
 4. Freunde öffnen den Link, registrieren sich (oder melden sich mit ihrem
-   BörsenTycoon-/Schach-Konto an) und sind drin.
+   BörsenTycoon-/Schach-Konto an), wählen einen Namen und sind drin.
 
-Wenn alle drin sind, kannst du den Einladungscode löschen. Dann kommt niemand
-Neues mehr rein. Wer schon drin ist, bleibt drin. Im Profil unter **Gruppe**
-kannst du Leute auch wieder entfernen (dann auch den Code löschen, sonst können
-sie wieder beitreten).
+Einen Einladungscode gibt es nicht: Wer den Link kennt und sich ein Konto macht,
+kann beitreten. Wenn jemand drin ist, der nicht reingehört: im Profil unter
+**Gruppe** auf **Entfernen** tippen. Die Person wird dann gesperrt und kann nicht
+wieder beitreten. Unter **Gesperrt** kannst du die Sperre wieder aufheben.
+
+## Reihenfolge im Feed
+
+Beim Öffnen sortiert Clips den Feed neu:
+
+1. Zuerst Videos von anderen, die du noch nicht gesehen hast. Neue und
+   beliebte (Likes, Kommentare) kommen weiter nach vorne, dazu etwas Zufall.
+2. Danach deine eigenen und schon gesehene Videos, die am längsten nicht mehr
+   gesehenen zuerst.
+3. Dieselbe Person kommt möglichst nicht zweimal hintereinander.
+
+Ein Video gilt als gesehen, wenn es 2 Sekunden lief. Das wird in deinem Konto
+gespeichert und gilt deshalb auf allen Geräten.
 
 ## Wer darf was? (durch die Datenbank-Regeln abgesichert)
 
 - Nur Mitglieder sehen Videos, Likes, Kommentare und die Mitgliederliste.
-  Ohne Einladung sieht man nichts, auch nicht über Umwege.
+  Ohne Konto und Namen sieht man nichts, auch nicht über Umwege.
 - Jeder Name kommt nur einmal vor (Groß-/Kleinschreibung egal: „Max“ und
   „max“ gelten als gleich). Wer schon Mitglied war, bekommt seinen Namen beim
   nächsten Öffnen automatisch reserviert.
