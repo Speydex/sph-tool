@@ -1,0 +1,91 @@
+name: Firestore-Regeln testen und veroeffentlichen
+
+# Bei jeder Aenderung an den Regeln: erst im Emulator testen, dann (nur auf
+# main) automatisch in Firebase veroeffentlichen. Kein Kopieren in die
+# Firebase-Konsole mehr noetig.
+# Einmalige Einrichtung: Secret FIREBASE_SERVICE_ACCOUNT (siehe firestore/README.md).
+on:
+  push:
+    branches: [main]
+    paths:
+      - "web/boersentycoon/firestore.rules"
+      - "firestore/**"
+      - "firebase.json"
+      - ".github/workflows/firestore-rules.yml"
+  pull_request:
+    paths:
+      - "web/boersentycoon/firestore.rules"
+      - "firestore/**"
+      - "firebase.json"
+      - ".github/workflows/firestore-rules.yml"
+  workflow_dispatch: {}   # erlaubt manuelles Starten per Knopfdruck
+
+permissions:
+  contents: read
+
+concurrency:
+  group: firestore-rules-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: firestore
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: npm
+          cache-dependency-path: firestore/package-lock.json
+
+      # Der Firestore-Emulator braucht Java
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "21"
+
+      - run: npm ci --no-audit --no-fund
+
+      - name: Regeln im Emulator testen
+        run: npm test
+
+  deploy:
+    needs: test
+    if: github.event_name != 'pull_request' && github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: firestore
+    env:
+      FIREBASE_SERVICE_ACCOUNT: ${{ secrets.FIREBASE_SERVICE_ACCOUNT }}
+    steps:
+      - name: Secret vorhanden?
+        if: env.FIREBASE_SERVICE_ACCOUNT == ''
+        working-directory: .
+        run: |
+          echo "::warning::Secret FIREBASE_SERVICE_ACCOUNT fehlt - Regeln wurden NICHT veroeffentlicht. Einrichtung: firestore/README.md"
+
+      - uses: actions/checkout@v4
+        if: env.FIREBASE_SERVICE_ACCOUNT != ''
+
+      - uses: actions/setup-node@v4
+        if: env.FIREBASE_SERVICE_ACCOUNT != ''
+        with:
+          node-version: "22"
+          cache: npm
+          cache-dependency-path: firestore/package-lock.json
+
+      - run: npm ci --no-audit --no-fund
+        if: env.FIREBASE_SERVICE_ACCOUNT != ''
+
+      - name: Regeln in Firebase veroeffentlichen
+        if: env.FIREBASE_SERVICE_ACCOUNT != ''
+        run: |
+          printf '%s' "$FIREBASE_SERVICE_ACCOUNT" > "$RUNNER_TEMP/firebase-sa.json"
+          export GOOGLE_APPLICATION_CREDENTIALS="$RUNNER_TEMP/firebase-sa.json"
+          npm run deploy
+          rm -f "$RUNNER_TEMP/firebase-sa.json"

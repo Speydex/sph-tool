@@ -440,3 +440,13 @@ button.danger { color: var(--alert); border-color: var(--alert); }
   border-radius: 6px; background: #222 center / cover no-repeat;
 }
 .act.rep .ico { font-size: 26px; }
+
+/* ---------- Speicher (Admin) ---------- */
+.storage-text { margin: 0 0 6px; font-weight: 700; }
+.storage-bar { height: 10px; border-radius: 5px; background: var(--border); overflow: hidden; }
+.storage-bar span { display: block; height: 100%; background: #2fb36d; }
+.storage-bar.warn span { background: #f0a020; }
+.storage-bar.full span { background: var(--alert); }
+.storage-broken { margin: 8px 0; padding: 8px 10px; border: 1px dashed var(--border); border-radius: 10px; }
+.storage-head { margin: 14px 0 6px; font-size: 14px; }
+.storage a { color: var(--accent); }
