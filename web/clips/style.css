@@ -420,3 +420,23 @@ button.following { background: var(--bg); color: var(--text); border-color: var(
   font-size: 15px;
 }
 .toast.error { background: var(--alert); }
+
+/* ---------- Moderation ---------- */
+button.danger { color: var(--alert); border-color: var(--alert); }
+.tab { position: relative; }
+.tab.has-badge::after {
+  content: ""; position: absolute; top: 2px; right: 14px;
+  width: 9px; height: 9px; border-radius: 50%; background: var(--accent);
+}
+.sheet.sheet-small { height: auto; padding-bottom: calc(12px + env(safe-area-inset-bottom)); }
+.report-reasons { display: flex; flex-direction: column; gap: 8px; padding: 12px 16px 4px; }
+.report-reasons button { text-align: left; padding: 12px 14px; }
+.report-note { margin: 4px 16px 0; }
+.report-item { display: flex; gap: 10px; align-items: flex-start; }
+.report-item p { margin: 2px 0; }
+.report-item .row { flex-wrap: wrap; margin-top: 6px; }
+.report-thumb {
+  width: 64px; aspect-ratio: 9 / 16; flex: none; padding: 0; border: 0;
+  border-radius: 6px; background: #222 center / cover no-repeat;
+}
+.act.rep .ico { font-size: 26px; }

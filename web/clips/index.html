@@ -133,6 +133,23 @@
   </div>
 </div>
 
+<!-- Video melden -->
+<div id="report" class="sheet-wrap" hidden>
+  <div class="sheet sheet-small">
+    <header class="sheet-head">
+      <b>Warum meldest du das Video?</b>
+      <button type="button" id="report-close" class="link" aria-label="Schließen"><span data-icon="close"></span></button>
+    </header>
+    <div class="report-reasons">
+      <button type="button" data-reason="nsfw">Nicht jugendfrei (Nacktheit, Sex)</button>
+      <button type="button" data-reason="violence">Gewalt oder Ekliges</button>
+      <button type="button" data-reason="bullying">Beleidigung oder Mobbing</button>
+      <button type="button" data-reason="other">Etwas anderes</button>
+    </div>
+    <p class="dim small report-note">Das Video wird sofort ausgeblendet, bis der Admin es geprüft hat.</p>
+  </div>
+</div>
+
 <p id="toast" class="toast" aria-live="polite" hidden></p>
 
 <!-- Firebase (Konten + Datenbank), dasselbe Projekt wie BörsenTycoon und Schach -->
@@ -141,6 +158,7 @@
 <script src="https://www.gstatic.com/firebasejs/10.13.0/firebase-firestore-compat.js"></script>
 <script src="../boersentycoon/firebase-config.js"></script>
 <script src="video.js"></script>
+<script src="moderation.js"></script>
 <script src="app.js"></script>
 </body>
 </html>

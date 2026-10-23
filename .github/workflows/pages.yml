@@ -43,6 +43,7 @@ jobs:
           sed -i "s/style\.css/style.css?v=${SHORT_SHA}/" web/schach/index.html
           sed -i "s/online\.js/online.js?v=${SHORT_SHA}/" web/schach/index.html
           sed -i "s/video\.js/video.js?v=${SHORT_SHA}/" web/clips/index.html
+          sed -i "s/moderation\.js/moderation.js?v=${SHORT_SHA}/" web/clips/index.html
           sed -i "s/app\.js/app.js?v=${SHORT_SHA}/" web/clips/index.html
           sed -i "s/style\.css/style.css?v=${SHORT_SHA}/" web/clips/index.html
 

@@ -46,6 +46,10 @@
 //   wieder beitreten. Nur der Admin legt Sperren an und hebt sie auf.
 // - clipsSeen/{userId}: Welche Videos man schon gesehen hat (für die
 //   Reihenfolge im Feed). Nur man selbst kann das lesen und schreiben.
+// - clipsReports/{videoId_userId}: Meldungen. Jede*r kann ein Video einmal
+//   melden; dabei steigt der Zähler reports am Video um genau 1 (dann ist es
+//   ausgeblendet). Nur der Admin sieht die Meldungen, löscht sie und setzt
+//   den Zähler beim Freigeben auf 0.
 // - clipsNames/{name}: Jeder Name (klein geschrieben) gehört genau einer
 //   Person, damit kein Name doppelt vorkommt. Man kann nur einen Namen
 //   belegen, den man gleichzeitig im eigenen Profil einträgt.
@@ -147,6 +151,16 @@ service cloud.firestore {
         && request.resource.data.keys().hasOnly(['ids'])
         && request.resource.data.ids is map;
     }
+    match /clipsReports/{reportId} {
+      allow read, delete: if clipsAdmin();
+      allow create: if clipsMember()
+        && request.resource.data.keys().hasOnly(['videoId', 'owner', 'reporter', 'reason', 'at'])
+        && request.resource.data.reporter == request.auth.uid
+        && reportId == request.resource.data.videoId + '_' + request.auth.uid
+        && request.resource.data.reason in ['nsfw', 'violence', 'bullying', 'other']
+        && getAfter(/databases/$(database)/documents/clipsVideos/$(request.resource.data.videoId)).data.get('reports', 0)
+           == get(/databases/$(database)/documents/clipsVideos/$(request.resource.data.videoId)).data.get('reports', 0) + 1;
+    }
     match /clipsBanned/{userId} {
       allow read: if request.auth != null && (request.auth.uid == userId || clipsAdmin());
       allow create: if clipsAdmin() && request.resource.data.keys().hasOnly(['name', 'at']);
@@ -193,6 +207,9 @@ service cloud.firestore {
       }
       function changed() {
         return request.resource.data.diff(resource.data).affectedKeys();
+      }
+      function myReport() {
+        return /databases/$(database)/documents/clipsReports/$(videoId + '_' + request.auth.uid);
       }
       allow read: if clipsMember();
       // Entweder ein hochgeladenes Video (in Stücken) oder ein eingebetteter
@@ -241,7 +258,11 @@ service cloud.firestore {
           || (changed().hasOnly(['comments'])
             && request.resource.data.comments >= 0
             && (request.resource.data.comments == resource.data.comments + 1
-                || request.resource.data.comments == resource.data.comments - 1)));
+                || request.resource.data.comments == resource.data.comments - 1))
+          || (changed().hasOnly(['reports'])
+            && request.resource.data.reports == resource.data.get('reports', 0) + 1
+            && !exists(myReport()) && existsAfter(myReport()))
+          || (clipsAdmin() && changed().hasOnly(['reports']) && request.resource.data.reports == 0));
       allow delete: if request.auth != null && (request.auth.uid == resource.data.owner || clipsAdmin());
 
       match /chunks/{chunkId} {

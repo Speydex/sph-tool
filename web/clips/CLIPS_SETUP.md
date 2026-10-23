@@ -41,6 +41,25 @@ bzw. YouTube abgespielt. Es braucht deshalb keinen Speicherplatz. Likes,
 Kommentare und Folgen funktionieren wie bei normalen Videos. Wird das Video bei
 TikTok/YouTube gelöscht oder privat gestellt, läuft es auch in Clips nicht mehr.
 
+## Moderation (nichts Nicht-Jugendfreies)
+
+- **Bilderkennung:** Vor dem Hochladen prüft Clips Einzelbilder aus dem Video
+  (bis zu 30, über die ganze Länge verteilt) mit einer Erkennung für Nacktheit
+  und Pornografie (NSFWJS, läuft im Browser). Schlägt sie an, wird das Video
+  nicht hochgeladen. Genauso werden Profilbilder und YouTube-Vorschaubilder
+  geprüft. Beim ersten Mal lädt die Erkennung ca. 6 MB, das dauert kurz.
+- **Wortfilter:** Beschreibungen, Kommentare, Namen und Titel von verlinkten
+  Videos dürfen keine sexuellen Wörter, harten Beleidigungen oder Nazi-Parolen
+  enthalten (auch nicht als „p0rn“ oder „p o r n“).
+- **Melden:** Jedes Video hat einen **Melden**-Knopf (Fähnchen). Ein gemeldetes
+  Video ist sofort für alle ausgeblendet. Der Admin sieht es oben im eigenen
+  Profil unter **Gemeldete Videos** (roter Punkt am Profil-Tab) und kann es
+  ansehen, **freigeben** oder **löschen**.
+
+Die automatische Prüfung läuft im Browser der Person, die etwas postet. Sie
+erkennt nicht alles und kann von jemandem mit Programmierkenntnissen umgangen
+werden – deshalb gibt es zusätzlich das Melden.
+
 ## Suchen und Folgen
 
 - Unten auf **Suche**: Kanäle (Namen) und Videos (Beschreibung, #hashtags oder

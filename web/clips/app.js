@@ -8,6 +8,8 @@
  *   clipsMembers/{uid}              { name, nameKey, photo, following: [uid], joinedAt }   wer drin ist
  *   clipsBanned/{uid}               { name, at }                vom Admin gesperrt
  *   clipsSeen/{uid}                 { ids: {videoId: ms} }      welche Videos man schon gesehen hat
+ *   clipsReports/{videoId_uid}      { videoId, owner, reporter, reason, at }   gemeldete Videos (nur Admin liest)
+ *   clipsVideos/{id}.reports        Anzahl Meldungen; ab 1 ist das Video ausgeblendet, bis der Admin entscheidet
  *   clipsNames/{nameKey}            { uid }                     sorgt dafür, dass jeder Name nur einmal vorkommt
  *   clipsVideos/{id}                { owner, caption, type, size, chunks, duration,
  *                                     thumb, likes, comments, ready, createdAt }
@@ -86,6 +88,7 @@ const ICONS = {
   arrowUp: '<path d="M12 19V5M6 11l6-6 6 6"/>',
   search: '<circle cx="11" cy="11" r="7"/><path d="m20 20-3.5-3.5"/>',
   check: '<path d="m5 12.5 4.5 4.5L19 7.5"/>',
+  flag: '<path d="M5 21V4"/><path d="M5 4h12l-2.5 4.5L17 13H5"/>',
 };
 
 function icon(name, cls = '') {
@@ -262,6 +265,7 @@ const names = () => S.db.collection('clipsNames');
 function nameProblem(name) {
   if (name.length < 2 || name.length > 20) return 'Der Name muss 2 bis 20 Zeichen lang sein.';
   if (name.includes('/') || /^\.+$/.test(name) || /^__.*__$/.test(name)) return 'Dieser Name geht leider nicht. Lass „/“ weg.';
+  if (badWord(name)) return 'Dieser Name ist hier nicht erlaubt. Such dir einen anderen aus.';
   return null;
 }
 
@@ -351,6 +355,7 @@ function startApp() {
       onAuth(S.user);
     } else showError(err);
   }));
+  watchReports();
   const token = (startApp.token = (startApp.token || 0) + 1);
   // Erst wissen, was schon gesehen wurde, dann den Feed sortieren
   loadSeen().then(() => { if (token === startApp.token && S.feed) subscribeFeed(); });
@@ -381,9 +386,14 @@ function subscribeFeed() {
   if (S.feedUnsub) S.feedUnsub();
   S.feedUnsub = videos().orderBy('createdAt', 'desc').limit(S.feedLimit).onSnapshot(snap => {
     S.feedFull = snap.size >= S.feedLimit;
-    S.feedVideos = snap.docs.map(videoData).filter(v => v.ready);
+    S.feedVideos = snap.docs.map(videoData).filter(visible);
     arrangeFeed();
   }, showError);
+}
+
+// Gemeldete Videos sind ausgeblendet, bis der Admin sie freigibt
+function visible(v) {
+  return v.ready && !(v.reports > 0);
 }
 
 // ---------- Algorithmus: was als Nächstes kommt ----------
@@ -804,12 +814,14 @@ class Feed {
     like.append(icon('heart', 'ico'), el('span', 'n'));
     const comment = button('', () => openComments(s.data), 'act');
     comment.append(icon('comment', 'ico'), el('span', 'n'));
+    const rep = button('', () => openReport(s.data), 'act rep');
+    rep.append(icon('flag', 'ico'), el('span', 'n', 'Melden'));
     const del = button('', () => this.askDelete(s), 'act del');
     del.append(icon('trash', 'ico'), el('span', 'n', 'Löschen'));
-    actions.append(prof, like, comment, del);
+    actions.append(prof, like, comment, rep, del);
 
     root.append(embed ? video.el : video, spinner, paused, fail, tap, meta, actions);
-    const s = { root, video, embed, spinner, paused, fail, who, when, caption, prof, like, comment, del, data: v };
+    const s = { root, video, embed, spinner, paused, fail, who, when, caption, prof, like, comment, rep, del, data: v };
     if (embed) {
       video.onSeen = () => {
         if (!s.counted) { s.counted = true; markSeen(v.id); }
@@ -872,6 +884,7 @@ class Feed {
     s.like.classList.toggle('on', !!S.liked.get(v.id));
     s.comment.querySelector('.n').textContent = count(v.comments);
     s.del.hidden = !(v.owner === myUid() || isAdmin());
+    s.rep.hidden = v.owner === myUid() || v.reports > 0;
     if (s.armed) {
       s.del.classList.add('armed');
       s.del.querySelector('.n').textContent = 'Sicher?';
@@ -1033,6 +1046,10 @@ async function deleteVideo(v, quiet = false) {
     // Erst die Unterdokumente, sonst können die Regeln den Besitzer nicht mehr prüfen
     const refs = [];
     for (let i = 0; i < v.chunks; i++) refs.push(ref.collection('chunks').doc(chunkId(i)));
+    if (isAdmin()) {
+      const reports = await S.db.collection('clipsReports').where('videoId', '==', v.id).get();
+      reports.forEach(d => refs.push(d.ref));
+    }
     for (const sub of ['likes', 'comments']) {
       const snap = await ref.collection(sub).get();
       snap.forEach(d => refs.push(d.ref));
@@ -1082,7 +1099,7 @@ async function renderProfile(uid) {
   } catch (e) { showError(e); }
   if (token !== renderProfile.token) return;
   const own = uid === myUid();
-  if (!own) list = list.filter(v => v.ready);
+  if (!own) list = list.filter(visible);
 
   box.innerHTML = '';
   const head = el('div', 'profile-head');
@@ -1134,8 +1151,16 @@ async function renderProfile(uid) {
 
   const grid = el('div', 'grid');
   list.forEach((v) => {
+    if (visible(v)) {
+      grid.append(videoCell(v, () => openPlayer(list.filter(visible), v.id)));
+      return;
+    }
     if (v.ready) {
-      grid.append(videoCell(v, () => openPlayer(list.filter(x => x.ready), v.id)));
+      // Eigenes gemeldetes Video: nur für einen selbst sichtbar
+      const cell = videoCell(v, () => openPlayer([v], v.id));
+      cell.classList.add('broken');
+      cell.append(el('span', 'cell-note', 'Gemeldet – wird vom Admin geprüft'));
+      grid.append(cell);
       return;
     }
     const cell = el('button', 'cell');
@@ -1165,7 +1190,7 @@ async function openSearch() {
   if (!S.allVideos || Date.now() - S.allVideosAt > 60000) {
     try {
       const snap = await videos().orderBy('createdAt', 'desc').limit(500).get();
-      S.allVideos = snap.docs.map(videoData).filter(v => v.ready);
+      S.allVideos = snap.docs.map(videoData).filter(visible);
       S.allVideosAt = Date.now();
       if (S.view === 'search') renderSearch();
     } catch (e) { showError(e); }
@@ -1260,6 +1285,14 @@ function renderGroup(box) {
   box.append(share);
 
   if (isAdmin()) {
+    const rep = el('section', 'group');
+    rep.append(el('h3', null, 'Gemeldete Videos'));
+    const repList = el('ul', 'list reports');
+    rep.append(repList);
+    // Ganz oben im Profil, damit der Admin Meldungen sofort sieht
+    box.insertBefore(rep, box.querySelector('.grid'));
+    loadReports(repList);
+
     const ban = el('section', 'group');
     ban.append(el('h3', null, 'Gesperrt'));
     const ul = el('ul', 'list');
@@ -1271,6 +1304,101 @@ function renderGroup(box) {
   const out = el('section', 'group');
   out.append(button('Abmelden', () => S.auth.signOut(), 'link'));
   box.append(out);
+}
+
+// ---------- Melden ----------
+const REASONS = {
+  nsfw: 'Nicht jugendfrei', violence: 'Gewalt/Ekliges', bullying: 'Beleidigung/Mobbing', other: 'Anderes',
+};
+
+function openReport(v) {
+  S.reporting = v;
+  $('report').hidden = false;
+}
+
+function closeReport() {
+  S.reporting = null;
+  $('report').hidden = true;
+}
+
+async function sendReport(reason) {
+  const v = S.reporting;
+  closeReport();
+  if (!v) return;
+  const ref = videos().doc(v.id);
+  const batch = S.db.batch();
+  batch.set(S.db.collection('clipsReports').doc(`${v.id}_${myUid()}`), {
+    videoId: v.id, owner: v.owner, reporter: myUid(), reason, at: serverTime(),
+  });
+  batch.update(ref, { reports: inc(1) });
+  try {
+    await batch.commit();
+    toast('Danke! Das Video ist ausgeblendet, bis der Admin es geprüft hat.');
+    if (S.player) {
+      S.player.update(S.player.videos.filter(x => x.id !== v.id));
+      if (!S.player.videos.length) closePlayer();
+    }
+  } catch (e) {
+    if (e.code === 'permission-denied') toast('Du hast dieses Video schon gemeldet.', true);
+    else showError(e);
+  }
+}
+
+// Für den Admin: Liste der gemeldeten Videos mit Gründen
+async function loadReports(ul) {
+  try {
+    const snap = await videos().where('reports', '>', 0).get();
+    ul.innerHTML = '';
+    for (const d of snap.docs) {
+      const v = videoData(d);
+      const reasons = await S.db.collection('clipsReports').where('videoId', '==', v.id).get();
+      const why = [...new Set(reasons.docs.map(r => REASONS[r.data().reason] || 'Anderes'))].join(', ');
+      const li = el('li', 'report-item');
+      const thumb = el('button', 'report-thumb');
+      thumb.type = 'button';
+      if (v.thumb) thumb.style.backgroundImage = `url("${v.thumb}")`;
+      thumb.onclick = () => openPlayer([v], v.id);
+      const info = el('div', 'grow');
+      info.append(el('b', null, `@${nameOf(v.owner)}`), el('p', 'dim small', v.caption || '(ohne Beschreibung)'),
+        el('p', 'small', `${v.reports}× gemeldet: ${why}`));
+      const btns = el('div', 'row');
+      btns.append(
+        button('Ansehen', () => openPlayer([v], v.id), 'small'),
+        button('Freigeben', () => approveVideo(v, reasons.docs), 'small'),
+        button('Löschen', () => deleteVideo(v).then(() => renderProfile(myUid())), 'small danger'));
+      info.append(btns);
+      li.append(thumb, info);
+      ul.append(li);
+    }
+    if (snap.empty) ul.append(el('li', 'dim', 'Nichts gemeldet.'));
+    S.reportCount = snap.size;
+    updateReportBadge();
+  } catch (e) { showError(e); }
+}
+
+async function approveVideo(v, reportDocs) {
+  const batch = S.db.batch();
+  reportDocs.forEach(d => batch.delete(d.ref));
+  batch.update(videos().doc(v.id), { reports: 0 });
+  try {
+    await batch.commit();
+    toast('Video freigegeben. Alle sehen es wieder.');
+    renderProfile(myUid());
+  } catch (e) { showError(e); }
+}
+
+// Roter Punkt am Profil-Tab, wenn es etwas zu prüfen gibt
+function watchReports() {
+  if (!isAdmin()) return;
+  S.unsubs.push(videos().where('reports', '>', 0).onSnapshot(snap => {
+    S.reportCount = snap.size;
+    updateReportBadge();
+  }, e => console.warn(e)));
+}
+
+function updateReportBadge() {
+  const tab = document.querySelector('.tab[data-go=profile]');
+  if (tab) tab.classList.toggle('has-badge', isAdmin() && S.reportCount > 0);
 }
 
 function appLink() {
@@ -1305,6 +1433,10 @@ async function copy(text, okText = 'Link kopiert.') {
 async function setPhoto(file) {
   try {
     const photo = file ? await makePhoto(file) : null;
+    if (photo) {
+      toast('Bild wird geprüft …');
+      if (!(await checkImageUrl(photo))) throw new Error('Dieses Bild ist hier nicht erlaubt. Nimm ein anderes.');
+    }
     await S.db.collection('clipsMembers').doc(myUid()).update({ photo });
     toast(file ? 'Profilbild gespeichert.' : 'Profilbild entfernt.');
   } catch (e) { showError(e); }
@@ -1393,6 +1525,7 @@ async function sendComment(e) {
   const v = S.comments.video;
   const input = $('comments-input');
   const text = input.value.trim();
+  if (badWord(text)) { toast('Dein Kommentar enthält ein Wort, das hier nicht erlaubt ist.', true); return; }
   if (!v || !text) return;
   const ref = videos().doc(v.id);
   const batch = S.db.batch();
@@ -1476,6 +1609,7 @@ async function pickLink() {
   try {
     const link = await resolveVideoLink(raw);
     if (token !== pickLink.token) return;
+    if (badWord(link.title)) throw new Error('Dieses Video ist hier nicht erlaubt.');
     S.upload.link = link;
     box.innerHTML = '';
     if (link.thumb) {
@@ -1501,6 +1635,13 @@ async function postLink() {
   S.upload.busy = true;
   $('upload-submit').disabled = true;
   try {
+    if (badWord(link.title)) throw new Error(BLOCKED_VIDEO);
+    if (link.thumb) {
+      toast('Video wird geprüft …');
+      // Vorschaubild prüfen. Lädt es nicht (z. B. TikTok), entscheidet der Titel.
+      const ok = await checkImageUrl(link.thumb).catch(e => (e.message.includes('Inhaltsprüfung') ? Promise.reject(e) : true));
+      if (!ok) throw new Error(BLOCKED_VIDEO);
+    }
     const ref = videos().doc();
     S.wantTop = ref.id;
     await ref.set({
@@ -1520,8 +1661,15 @@ async function postLink() {
   }
 }
 
+const BLOCKED_VIDEO = 'Das Video wurde nicht hochgeladen, weil es nicht jugendfrei aussieht. '
+  + 'Falls das ein Irrtum ist, sag dem Admin Bescheid.';
+
 function postVideo(e) {
   e.preventDefault();
+  if (badWord($('upload-caption').value)) {
+    toast('In der Beschreibung steht ein Wort, das hier nicht erlaubt ist.', true);
+    return;
+  }
   if (S.upload.link) { postLink(); return; }
   const probe = S.upload.probe;
   if (!probe || S.upload.busy) return;
@@ -1548,6 +1696,9 @@ async function finishUpload(prepared, duration) {
   try {
     const { blob, type } = await prepared;
     if (blob.size > MAX_BYTES) throw new Error(`Das Video ist auch verkleinert noch ${(blob.size / 1024 / 1024).toFixed(0)} MB groß. Das ist zu groß für die Datenbank – schneide es etwas kürzer.`);
+    progress('Inhalt wird geprüft …', 0);
+    const clean = await checkVideo(blob, duration, p => progress(`Inhalt wird geprüft … ${Math.round(p * 100)} %`, p));
+    if (!clean) throw new Error(BLOCKED_VIDEO);
     progress('Vorschaubild …', 0);
     const thumb = await makeThumb(blob).catch(() => null);
     const chunks = Math.ceil(blob.size / CHUNK_BYTES);
@@ -1612,6 +1763,9 @@ $('sound').onclick = () => setMuted(!S.muted);
 $('comments-close').onclick = closeComments;
 $('comments').onclick = (e) => { if (e.target === $('comments')) closeComments(); };
 $('comments-form').onsubmit = sendComment;
+$('report-close').onclick = closeReport;
+$('report').onclick = (e) => { if (e.target === $('report')) closeReport(); };
+for (const b of document.querySelectorAll('[data-reason]')) b.onclick = () => sendReport(b.dataset.reason);
 $('upload-file').onchange = () => {
   // Eine Datei ersetzt einen eingefügten Link
   S.upload.link = null;
