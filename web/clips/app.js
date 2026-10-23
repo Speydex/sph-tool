@@ -9,6 +9,8 @@
  *   clipsBanned/{uid}               { name, at }                vom Admin gesperrt
  *   clipsSeen/{uid}                 { ids: {videoId: ms} }      welche Videos man schon gesehen hat
  *   clipsReports/{videoId_uid}      { videoId, owner, reporter, reason, at }   gemeldete Videos (nur Admin liest)
+ *   clipsInbox/{uid}/items/{id}     { type, from, videoId?, commentId?, text?, at }   Aktivität für die Person
+ *   clipsVideos/{id}/comments/{id}  { uid, text, createdAt, replyTo?, likes } + likes/{uid}
  *   clipsVideos/{id}.reports        Anzahl Meldungen; ab 1 ist das Video ausgeblendet, bis der Admin entscheidet
  *   clipsNames/{nameKey}            { uid }                     sorgt dafür, dass jeder Name nur einmal vorkommt
  *   clipsVideos/{id}                { owner, caption, type, size, chunks, duration,
@@ -45,7 +47,9 @@ const S = {
   urls: new Map(),          // videoId -> Promise<objectURL>, älteste zuerst
   muted: true,
   upload: { probe: null, link: null, busy: false },
-  comments: { video: null, unsub: null },
+  comments: { video: null, unsub: null, liked: new Map(), replyTo: null },
+  activity: [],
+  activitySeen: 0,
 };
 
 const $ = (id) => document.getElementById(id);
@@ -87,6 +91,8 @@ const ICONS = {
   camera: '<rect x="2.5" y="6" width="13" height="12" rx="2"/><path d="m15.5 10.5 6-3.5v10l-6-3.5z"/>',
   arrowUp: '<path d="M12 19V5M6 11l6-6 6 6"/>',
   search: '<circle cx="11" cy="11" r="7"/><path d="m20 20-3.5-3.5"/>',
+  bell: '<path d="M6 16V11a6 6 0 0 1 12 0v5l2 2H4z"/><path d="M10 20a2 2 0 0 0 4 0"/>',
+  download: '<path d="M12 4v11M7 10l5 5 5-5M5 20h14"/>',
   check: '<path d="m5 12.5 4.5 4.5L19 7.5"/>',
   flag: '<path d="M5 21V4"/><path d="M5 4h12l-2.5 4.5L17 13H5"/>',
 };
@@ -356,6 +362,7 @@ function startApp() {
     } else showError(err);
   }));
   watchReports();
+  watchActivity();
   setTimeout(checkStorageWarning, 4000);
   const token = (startApp.token = (startApp.token || 0) + 1);
   // Erst wissen, was schon gesehen wurde, dann den Feed sortieren
@@ -379,6 +386,9 @@ function stopApp() {
   flushSeen();
   S.seen = new Map();
   S.liked.clear();
+  S.activity = [];
+  S.activitySeen = 0;
+  openActivity.cleaned = false;
   for (const p of S.urls.values()) p.then(URL.revokeObjectURL, () => {});
   S.urls.clear();
 }
@@ -494,9 +504,12 @@ async function toggleFollow(uid) {
   if (uid === myUid()) return;
   const was = follows(uid);
   const field = firebase.firestore.FieldValue;
+  const batch = S.db.batch();
+  batch.update(S.db.collection('clipsMembers').doc(myUid()),
+    { following: was ? field.arrayRemove(uid) : field.arrayUnion(uid) });
+  if (!was) notify(batch, uid, { type: 'follow' });
   try {
-    await S.db.collection('clipsMembers').doc(myUid())
-      .update({ following: was ? field.arrayRemove(uid) : field.arrayUnion(uid) });
+    await batch.commit();
     toast(was ? `Du folgst ${nameOf(uid)} nicht mehr.` : `Du folgst jetzt ${nameOf(uid)}.`);
   } catch (e) { showError(e); }
 }
@@ -525,6 +538,10 @@ async function loadSeen() {
   try {
     const snap = await S.db.collection('clipsSeen').doc(myUid()).get();
     const ids = (snap.exists && snap.data().ids) || {};
+    let local = 0;
+    try { local = Number(localStorage.getItem('clips-activity-' + myUid())) || 0; } catch (e) { /* egal */ }
+    S.activitySeen = Math.max(local, (snap.exists && snap.data().activityAt) || 0);
+    updateActivityBadge();
     for (const [id, t] of Object.entries(ids)) if (!(S.seen.get(id) >= t)) S.seen.set(id, t);
   } catch (e) { console.warn('Gesehene Videos nicht geladen', e); }
 }
@@ -554,7 +571,7 @@ function loadMore() {
   subscribeFeed();
 }
 
-const VIEWS = ['feed', 'search', 'upload', 'profile'];
+const VIEWS = ['feed', 'search', 'upload', 'activity', 'profile'];
 
 function go(view) {
   if (S.upload.busy && view !== 'upload') { toast('Warte, bis dein Video hochgeladen ist.'); return; }
@@ -563,6 +580,8 @@ function go(view) {
   for (const t of document.querySelectorAll('.tab')) t.classList.toggle('active', t.dataset.go === view);
   closePlayer();
   if (view === 'search') openSearch();
+  if (view === 'activity') openActivity();
+  updateActivityBadge();
   if (view === 'feed') S.feed.resume();
   else S.feed.pause();
   if (view === 'profile') renderProfile(myUid());
@@ -612,6 +631,70 @@ async function loadLiked(id) {
     console.warn(e);
   }
   return !!S.liked.get(id);
+}
+
+// ---------- Streamen: lange Videos starten, bevor alles geladen ist ----------
+// Videos, die Clips beim Hochladen selbst verkleinert hat, lassen sich Stück
+// für Stück in den Player schieben (MediaSource). Alle anderen werden wie
+// bisher erst komplett geladen.
+function canStream(v) {
+  return !!(v.mime && v.chunks > 1 && window.MediaSource && MediaSource.isTypeSupported(v.mime));
+}
+
+function waitUpdate(sb) {
+  return new Promise((resolve, reject) => {
+    const done = () => { sb.removeEventListener('updateend', done); sb.removeEventListener('error', fail); resolve(); };
+    const fail = () => { sb.removeEventListener('updateend', done); sb.removeEventListener('error', fail); reject(new Error('Video konnte nicht abgespielt werden.')); };
+    sb.addEventListener('updateend', done);
+    sb.addEventListener('error', fail);
+  });
+}
+
+function streamVideo(v, videoEl, onError) {
+  const ms = new MediaSource();
+  const st = { url: URL.createObjectURL(ms), stopped: false, trimmed: false };
+  st.stop = () => { st.stopped = true; URL.revokeObjectURL(st.url); };
+  ms.addEventListener('sourceopen', async () => {
+    try {
+      const sb = ms.addSourceBuffer(v.mime);
+      const ref = videos().doc(v.id).collection('chunks');
+      // Immer ein Stück im Voraus laden, damit es flüssig weiterläuft
+      let next = ref.doc(chunkId(0)).get();
+      for (let i = 0; i < v.chunks; i++) {
+        const snap = await next;
+        if (i + 1 < v.chunks) next = ref.doc(chunkId(i + 1)).get();
+        if (st.stopped) return;
+        if (!snap.exists) throw new Error('Video ist unvollständig.');
+        await appendChunk(sb, snap.data().data.toUint8Array(), st, videoEl);
+        if (st.stopped) return;
+      }
+      if (ms.readyState === 'open') ms.endOfStream();
+    } catch (e) {
+      if (!st.stopped) onError(e);
+    }
+  }, { once: true });
+  return st;
+}
+
+async function appendChunk(sb, data, st, videoEl) {
+  for (;;) {
+    try {
+      sb.appendBuffer(data);
+      await waitUpdate(sb);
+      return;
+    } catch (e) {
+      if (e.name !== 'QuotaExceededError') throw e;
+      // Puffer voll (sehr lange Videos): schon Gesehenes freigeben und kurz warten
+      const cut = videoEl.currentTime - 10;
+      if (cut > 1) {
+        st.trimmed = true;
+        sb.remove(0, cut);
+        await waitUpdate(sb);
+      }
+      await new Promise(r => setTimeout(r, 1000));
+      if (st.stopped) return;
+    }
+  }
 }
 
 // ---------- Videos per Link (TikTok, YouTube) ----------
@@ -722,6 +805,208 @@ class EmbedPlayer {
   }
 }
 
+// ---------- Aktivität (Likes, Kommentare, Antworten, Erwähnungen, Follower) ----------
+// Wer etwas tut, legt im selben Schreibvorgang einen Eintrag im Postfach der
+// betroffenen Person an. Die Regeln prüfen, dass es die Aktion wirklich gibt.
+const inbox = (uid) => S.db.collection('clipsInbox').doc(uid).collection('items');
+const ACTIVITY_KEEP = 100;
+
+function notify(batch, to, data) {
+  if (!to || to === myUid() || !S.members.has(to)) return;
+  const item = { from: myUid(), at: serverTime(), type: data.type };
+  for (const k of ['videoId', 'commentId']) if (data[k]) item[k] = data[k];
+  if (data.text) item.text = data.text.slice(0, 120);
+  batch.set(inbox(to).doc(), item);
+}
+
+// @Namen in einem Text finden (Namen können Leerzeichen enthalten)
+function mentionedUids(text) {
+  const found = new Set();
+  const lower = (text || '').toLowerCase();
+  let i = lower.indexOf('@');
+  while (i >= 0) {
+    const m = memberAt(lower, i + 1);
+    if (m) found.add(m.uid);
+    i = lower.indexOf('@', i + 1);
+  }
+  found.delete(myUid());
+  return [...found];
+}
+
+// Längster Mitgliedsname, mit dem der Text an Stelle `pos` anfängt
+function memberAt(lowerText, pos) {
+  let best = null;
+  for (const [uid, m] of S.members) {
+    const name = (m.name || '').toLowerCase();
+    if (!name || !lowerText.startsWith(name, pos)) continue;
+    const after = lowerText.charAt(pos + name.length);
+    if (after && /[\p{L}\p{N}_]/u.test(after)) continue;
+    if (!best || name.length > best.length) best = { uid, length: name.length };
+  }
+  return best;
+}
+
+function watchActivity() {
+  S.activity = [];
+  S.unsubs.push(inbox(myUid()).orderBy('at', 'desc').limit(60).onSnapshot(snap => {
+    S.activity = snap.docs.map(d => ({ id: d.id, ...d.data({ serverTimestamps: 'estimate' }) }));
+    updateActivityBadge();
+    if (S.view === 'activity') renderActivity();
+  }, e => console.warn('Aktivität nicht geladen', e)));
+}
+
+function unreadActivity() {
+  return S.activity.filter(a => millis(a.at) > (S.activitySeen || 0)).length;
+}
+
+function updateActivityBadge() {
+  const tab = document.querySelector('.tab[data-go=activity]');
+  if (!tab) return;
+  const n = unreadActivity();
+  tab.dataset.count = n > 9 ? '9+' : String(n);
+  tab.classList.toggle('has-count', n > 0 && S.view !== 'activity');
+}
+
+function openActivity() {
+  renderActivity();
+  // Alles bis jetzt gilt als gelesen (im Konto, damit es auf allen Geräten gilt)
+  const newest = S.activity.length ? millis(S.activity[0].at) : 0;
+  if (newest > (S.activitySeen || 0)) {
+    S.activitySeen = newest;
+    try { localStorage.setItem('clips-activity-' + myUid(), String(newest)); } catch (e) { /* egal */ }
+    S.db.collection('clipsSeen').doc(myUid()).set({ activityAt: newest }, { merge: true }).catch(e => console.warn(e));
+  }
+  updateActivityBadge();
+  if (!openActivity.cleaned) { openActivity.cleaned = true; cleanActivity(); }
+}
+
+// Nur die neuesten Einträge behalten
+async function cleanActivity() {
+  try {
+    const snap = await inbox(myUid()).orderBy('at', 'desc').limit(ACTIVITY_KEEP + 200).get();
+    const old = snap.docs.slice(ACTIVITY_KEEP);
+    if (!old.length) return;
+    const batch = S.db.batch();
+    old.forEach(d => batch.delete(d.ref));
+    await batch.commit();
+  } catch (e) { console.warn(e); }
+}
+
+const ACTIVITY_TEXT = {
+  like: () => 'gefällt dein Video.',
+  comment: (a) => `hat kommentiert: „${a.text || ''}“`,
+  reply: (a) => `hat dir geantwortet: „${a.text || ''}“`,
+  mention: (a) => (a.commentId ? `hat dich erwähnt: „${a.text || ''}“` : 'hat dich in einem Video erwähnt.'),
+  commentLike: (a) => `gefällt dein Kommentar: „${a.text || ''}“`,
+  follow: () => 'folgt dir jetzt.',
+};
+
+async function findVideo(id) {
+  const known = [...(S.feedVideos || []), ...(S.allVideos || [])].find(v => v.id === id);
+  if (known) return known;
+  const snap = await videos().doc(id).get();
+  return snap.exists ? videoData(snap) : null;
+}
+
+function renderActivity() {
+  const box = $('activity');
+  box.innerHTML = '';
+  box.append(el('h2', null, 'Aktivität'));
+  if (!S.activity.length) {
+    box.append(el('p', 'dim', 'Noch nichts passiert. Wenn jemand dein Video liket, kommentiert oder dir folgt, siehst du es hier.'));
+    return;
+  }
+  const ul = el('ul', 'activity-list');
+  for (const a of S.activity) {
+    const li = el('li', 'activity-item' + (millis(a.at) > (S.activitySeen || 0) ? ' unread' : ''));
+    const who = button('', () => openProfile(a.from), 'activity-avatar');
+    who.append(avatar(a.from, 'mid'));
+    const text = el('div', 'grow activity-text');
+    const line = el('p');
+    line.append(el('b', null, nameOf(a.from) + ' '), document.createTextNode((ACTIVITY_TEXT[a.type] || (() => ''))(a)));
+    text.append(line, el('span', 'dim small', ago(a.at)));
+    li.append(who, text);
+    if (a.type === 'follow') {
+      if (!follows(a.from) && S.members.has(a.from)) li.append(followButton(a.from));
+      li.onclick = () => openProfile(a.from);
+    } else if (a.videoId) {
+      const thumb = el('span', 'activity-thumb');
+      li.append(thumb);
+      findVideo(a.videoId).then(v => {
+        if (v && v.thumb) thumb.style.backgroundImage = `url("${v.thumb}")`;
+        if (!v) li.classList.add('gone');
+      }).catch(() => {});
+      li.onclick = async () => {
+        const v = await findVideo(a.videoId).catch(() => null);
+        if (!v || !visible(v)) { toast('Dieses Video gibt es nicht mehr.'); return; }
+        openPlayer([v], v.id);
+        if (a.commentId) openComments(v);
+      };
+    }
+    ul.append(li);
+  }
+  box.append(ul);
+}
+
+// ---------- #hashtags und @Namen anklickbar ----------
+function richText(container, text) {
+  container.replaceChildren();
+  const src = text || '';
+  const lower = src.toLowerCase();
+  let plain = '';
+  const flush = () => { if (plain) { container.append(document.createTextNode(plain)); plain = ''; } };
+  for (let i = 0; i < src.length;) {
+    const ch = src[i];
+    const prev = i ? src[i - 1] : ' ';
+    const atStart = !/[\p{L}\p{N}_]/u.test(prev);
+    if (ch === '#' && atStart) {
+      const m = /^#[\p{L}\p{N}_]+/u.exec(src.slice(i));
+      if (m) {
+        flush();
+        const tag = m[0];
+        const b = el('button', 'tag', tag);
+        b.type = 'button';
+        b.onclick = (e) => { e.stopPropagation(); searchFor(tag); };
+        container.append(b);
+        i += tag.length;
+        continue;
+      }
+    }
+    if (ch === '@' && atStart) {
+      const m = memberAt(lower, i + 1);
+      if (m) {
+        flush();
+        const label = src.slice(i, i + 1 + m.length);
+        const b = el('button', 'tag', label);
+        b.type = 'button';
+        b.onclick = (e) => { e.stopPropagation(); openProfile(m.uid); };
+        container.append(b);
+        i += label.length;
+        continue;
+      }
+    }
+    plain += ch;
+    i++;
+  }
+  flush();
+}
+
+// Wer in einer Videobeschreibung mit @Name erwähnt wird, bekommt Bescheid
+function notifyMentions(videoId, text) {
+  const uids = mentionedUids(text);
+  if (!uids.length) return;
+  const batch = S.db.batch();
+  for (const uid of uids) notify(batch, uid, { type: 'mention', videoId });
+  batch.commit().catch(e => console.warn('Erwähnung nicht gesendet', e));
+}
+
+function searchFor(q) {
+  closePlayer();
+  closeComments();
+  $('search-input').value = q;
+  go('search');
+}
+
 // ---------- Feed (TikTok-artiges Hochwischen) ----------
 class Feed {
   constructor(root, { onNearEnd } = {}) {
@@ -742,7 +1027,10 @@ class Feed {
 
   destroy() {
     this.observer.disconnect();
-    for (const s of this.slides.values()) s.video.pause();
+    for (const s of this.slides.values()) {
+      s.video.pause();
+      if (s.stream) s.stream.stop();
+    }
     this.root.innerHTML = '';
     this.slides.clear();
   }
@@ -754,6 +1042,7 @@ class Feed {
       if (!keep.some(v => v.id === id)) {
         this.observer.unobserve(s.root);
         s.video.pause();
+        if (s.stream) s.stream.stop();
         s.root.remove();
         this.slides.delete(id);
         if (this.current === id) this.current = null;
@@ -863,6 +1152,13 @@ class Feed {
       }
     });
     video.addEventListener('playing', () => { spinner.hidden = true; paused.hidden = true; });
+    // Beim Neustart (Schleife) eines sehr langen Videos fehlt der Anfang im Puffer: neu laden
+    video.addEventListener('seeking', () => {
+      if (s.stream && s.stream.trimmed && video.currentTime < 1) {
+        this.forget(s.data.id, true);
+        this.play(s);
+      }
+    });
   }
 
   fill(s) {
@@ -870,7 +1166,7 @@ class Feed {
     if (v.thumb && s.video.poster !== v.thumb) s.video.poster = v.thumb;
     s.who.textContent = '@' + nameOf(v.owner);
     s.when.textContent = ' · ' + ago(v.createdAt) + (s.embed ? ' · ' + PROVIDERS[v.provider] : '');
-    s.caption.textContent = v.caption || '';
+    if (s.captionText !== v.caption) { s.captionText = v.caption; richText(s.caption, v.caption); }
     s.caption.hidden = !v.caption;
     s.prof.replaceChildren(avatar(v.owner, 'big'));
     if (v.owner !== myUid() && !follows(v.owner)) {
@@ -919,8 +1215,18 @@ class Feed {
     if (!s.video.getAttribute('src')) {
       s.spinner.hidden = false;
       try {
-        const url = s.embed ? s.video.embedUrl : await videoUrl(s.data);
-        if (this.current !== s.data.id) return;
+        let url;
+        if (s.embed) url = s.video.embedUrl;
+        else if (canStream(s.data)) {
+          s.stream = streamVideo(s.data, s.video, (e) => {
+            console.error(e);
+            s.spinner.hidden = true;
+            s.fail.textContent = 'Video konnte nicht geladen werden.';
+            s.fail.hidden = false;
+          });
+          url = s.stream.url;
+        } else url = await videoUrl(s.data);
+        if (this.current !== s.data.id) { if (s.stream) { s.stream.stop(); s.stream = null; } return; }
         s.video.src = url;
       } catch (e) {
         console.error(e);
@@ -952,12 +1258,13 @@ class Feed {
     if (s) s.video.pause();
   }
 
-  forget(id) {
+  forget(id, force = false) {
     const s = this.slides.get(id);
-    if (!s || this.current === id) return;
+    if (!s || (this.current === id && !force)) return;
     s.video.pause();
     s.video.removeAttribute('src');
     s.video.load();
+    if (s.stream) { s.stream.stop(); s.stream = null; }
   }
 
   pause() {
@@ -1003,6 +1310,7 @@ class Feed {
     if (was) batch.delete(ref.collection('likes').doc(myUid()));
     else batch.set(ref.collection('likes').doc(myUid()), { at: serverTime() });
     batch.update(ref, { likes: inc(was ? -1 : 1) });
+    if (!was) notify(batch, s.data.owner, { type: 'like', videoId: id });
     // Sofort anzeigen, die Datenbank zieht gleich nach
     S.liked.set(id, !was);
     s.data = { ...s.data, likes: (s.data.likes || 0) + (was ? -1 : 1) };
@@ -1054,6 +1362,13 @@ async function deleteVideo(v, quiet = false) {
     for (const sub of ['likes', 'comments']) {
       const snap = await ref.collection(sub).get();
       snap.forEach(d => refs.push(d.ref));
+      if (sub === 'comments') {
+        for (const d of snap.docs) {
+          if (!d.data().likes) continue;
+          const likes = await d.ref.collection('likes').get();
+          likes.forEach(l => refs.unshift(l.ref));
+        }
+      }
     }
     // Ein Batch darf höchstens 500 Schreibvorgänge haben
     for (let i = 0; i < refs.length; i += 400) {
@@ -1278,6 +1593,9 @@ function renderGroup(box) {
   }
   sec.append(ul);
   box.append(sec);
+
+  const install = installSection();
+  if (install) box.append(install);
 
   const share = el('section', 'group');
   share.append(el('h3', null, 'Freunde einladen'));
@@ -1598,40 +1916,120 @@ function closePlayer() {
 function openComments(v) {
   closeComments();
   S.comments.video = v;
+  S.comments.liked = new Map();
   $('comments').hidden = false;
   $('comments-title').textContent = 'Kommentare';
   const list = $('comments-list');
   list.innerHTML = '';
   list.append(el('li', 'dim', 'Lädt …'));
+  let first = true;
   S.comments.unsub = videos().doc(v.id).collection('comments').orderBy('createdAt').limit(300)
-    .onSnapshot(snap => {
-      list.innerHTML = '';
-      $('comments-title').textContent = `${snap.size} Kommentar${snap.size === 1 ? '' : 'e'}`;
-      snap.forEach(d => {
-        const c = d.data({ serverTimestamps: 'estimate' });
-        const li = el('li', 'comment');
-        const body = el('div', 'grow');
-        const top = el('p', 'comment-top');
-        top.append(el('b', null, nameOf(c.uid)), el('span', 'dim', ' · ' + ago(c.createdAt)));
-        body.append(top, el('p', 'comment-text', c.text));
-        li.append(avatar(c.uid), body);
-        if (c.uid === myUid() || v.owner === myUid() || isAdmin()) {
-          const del = button('', () => deleteComment(v, d.id), 'link small');
-          del.append(icon('close'));
-          del.setAttribute('aria-label', 'Kommentar löschen');
-          li.append(del);
-        }
-        list.append(li);
-      });
-      if (snap.empty) list.append(el('li', 'dim', 'Noch keine Kommentare. Schreib den ersten!'));
-      list.scrollTop = list.scrollHeight;
+    .onSnapshot(async snap => {
+      const all = snap.docs.map(d => ({ id: d.id, ...d.data({ serverTimestamps: 'estimate' }) }));
+      // Welche Kommentare habe ich schon geliket? (einmal nachschauen, dann merken)
+      const unknown = all.filter(c => (c.likes || 0) > 0 && !S.comments.liked.has(c.id));
+      await Promise.all(unknown.map(c => videos().doc(v.id).collection('comments').doc(c.id)
+        .collection('likes').doc(myUid()).get()
+        .then(s => S.comments.liked.set(c.id, s.exists), () => {})));
+      if (S.comments.video !== v) return;
+      renderComments(v, all, first);
+      first = false;
     }, showError);
+}
+
+// Antworten hängen unter dem Kommentar, auf den sie sich beziehen (eine Ebene)
+function renderComments(v, all, scrollDown) {
+  const list = $('comments-list');
+  const keep = list.scrollTop;
+  list.innerHTML = '';
+  $('comments-title').textContent = `${all.length} Kommentar${all.length === 1 ? '' : 'e'}`;
+  const byId = new Map(all.map(c => [c.id, c]));
+  const rootOf = (c) => {
+    let r = c;
+    for (let i = 0; i < 20 && r.replyTo && byId.has(r.replyTo); i++) r = byId.get(r.replyTo);
+    return r;
+  };
+  const replies = new Map();
+  const roots = [];
+  for (const c of all) {
+    const r = rootOf(c);
+    if (r === c) roots.push(c);
+    else {
+      if (!replies.has(r.id)) replies.set(r.id, []);
+      replies.get(r.id).push(c);
+    }
+  }
+  for (const c of roots) {
+    list.append(commentItem(v, c, false));
+    for (const r of replies.get(c.id) || []) list.append(commentItem(v, r, true, c));
+  }
+  if (!all.length) list.append(el('li', 'dim', 'Noch keine Kommentare. Schreib den ersten!'));
+  list.scrollTop = scrollDown ? list.scrollHeight : keep;
+}
+
+function commentItem(v, c, isReply, root) {
+  const li = el('li', 'comment' + (isReply ? ' reply' : ''));
+  const body = el('div', 'grow');
+  const top = el('p', 'comment-top');
+  top.append(el('b', null, nameOf(c.uid)), el('span', 'dim', ' · ' + ago(c.createdAt)));
+  const text = el('p', 'comment-text');
+  richText(text, c.text);
+  const actions = el('div', 'comment-actions');
+  actions.append(button('Antworten', () => startReply(root || c, c.uid), 'link small'));
+  if (c.uid === myUid() || v.owner === myUid() || isAdmin()) {
+    actions.append(button('Löschen', () => deleteComment(v, c), 'link small'));
+  }
+  body.append(top, text, actions);
+  const liked = !!S.comments.liked.get(c.id);
+  const like = button('', () => toggleCommentLike(v, c), 'comment-like' + (liked ? ' on' : ''));
+  like.append(icon('heart', 'ico'), el('span', 'n', c.likes ? count(c.likes) : ''));
+  like.setAttribute('aria-label', liked ? 'Gefällt mir nicht mehr' : 'Gefällt mir');
+  li.append(avatar(c.uid), body, like);
+  return li;
+}
+
+function startReply(root, toUid) {
+  S.comments.replyTo = root.id;
+  S.comments.replyToUid = toUid;
+  $('comments-reply-text').textContent = `Antwort an ${nameOf(toUid)}`;
+  $('comments-reply').hidden = false;
+  const input = $('comments-input');
+  const tag = '@' + nameOf(toUid) + ' ';
+  if (toUid !== myUid() && !input.value.startsWith(tag)) input.value = tag + input.value;
+  input.focus();
+}
+
+function cancelReply() {
+  S.comments.replyTo = null;
+  S.comments.replyToUid = null;
+  $('comments-reply').hidden = true;
+}
+
+async function toggleCommentLike(v, c) {
+  if (S.comments.liking) return;
+  S.comments.liking = true;
+  const was = !!S.comments.liked.get(c.id);
+  const ref = videos().doc(v.id).collection('comments').doc(c.id);
+  const batch = S.db.batch();
+  if (was) batch.delete(ref.collection('likes').doc(myUid()));
+  else batch.set(ref.collection('likes').doc(myUid()), { at: serverTime() });
+  batch.update(ref, { likes: inc(was ? -1 : 1) });
+  if (!was) notify(batch, c.uid, { type: 'commentLike', videoId: v.id, commentId: c.id, text: c.text });
+  S.comments.liked.set(c.id, !was);
+  try {
+    await batch.commit();
+  } catch (e) {
+    S.comments.liked.set(c.id, was);
+    showError(e);
+  }
+  S.comments.liking = false;
 }
 
 function closeComments() {
   if (S.comments.unsub) S.comments.unsub();
   S.comments.unsub = null;
   S.comments.video = null;
+  cancelReply();
   $('comments').hidden = true;
 }
 
@@ -1643,19 +2041,39 @@ async function sendComment(e) {
   if (badWord(text)) { toast('Dein Kommentar enthält ein Wort, das hier nicht erlaubt ist.', true); return; }
   if (!v || !text) return;
   const ref = videos().doc(v.id);
+  const cref = ref.collection('comments').doc();
   const batch = S.db.batch();
-  batch.set(ref.collection('comments').doc(), { uid: myUid(), text, createdAt: serverTime() });
+  const data = { uid: myUid(), text, createdAt: serverTime(), likes: 0 };
+  const replyUid = S.comments.replyTo ? S.comments.replyToUid : null;
+  if (S.comments.replyTo) data.replyTo = S.comments.replyTo;
+  batch.set(cref, data);
   batch.update(ref, { comments: inc(1) });
+  // Benachrichtigen: Video-Besitzer, angesprochene Person, erwähnte Leute (jeweils nur einmal)
+  const told = new Set([myUid()]);
+  const tell = (uid, type) => {
+    if (!uid || told.has(uid)) return;
+    told.add(uid);
+    notify(batch, uid, { type, videoId: v.id, commentId: cref.id, text });
+  };
+  tell(replyUid, 'reply');
+  tell(v.owner, 'comment');
+  for (const uid of mentionedUids(text)) tell(uid, 'mention');
   input.value = '';
+  cancelReply();
   try { await batch.commit(); } catch (err) { input.value = text; showError(err); }
 }
 
-async function deleteComment(v, id) {
+async function deleteComment(v, c) {
   const ref = videos().doc(v.id);
-  const batch = S.db.batch();
-  batch.delete(ref.collection('comments').doc(id));
-  batch.update(ref, { comments: inc(-1) });
-  try { await batch.commit(); } catch (e) { showError(e); }
+  const cref = ref.collection('comments').doc(c.id);
+  try {
+    const likes = await cref.collection('likes').get();
+    const batch = S.db.batch();
+    likes.forEach(d => batch.delete(d.ref));
+    batch.delete(cref);
+    batch.update(ref, { comments: inc(-1) });
+    await batch.commit();
+  } catch (e) { showError(e); }
 }
 
 // ---------- Hochladen ----------
@@ -1764,6 +2182,7 @@ async function postLink() {
       kind: 'link', provider: link.provider, embedId: link.embedId, url: link.url, thumb: link.thumb,
       chunks: 0, likes: 0, comments: 0, ready: true, createdAt: serverTime(),
     });
+    notifyMentions(ref.id, $('upload-caption').value);
     resetUpload();
     S.upload.busy = false;
     toast('Video gepostet!');
@@ -1809,7 +2228,7 @@ async function finishUpload(prepared, duration) {
   const caption = $('upload-caption').value.trim().slice(0, 150);
   let ref = null;
   try {
-    const { blob, type } = await prepared;
+    const { blob, type, mime } = await prepared;
     if (blob.size > MAX_BYTES) throw new Error(`Das Video ist auch verkleinert noch ${(blob.size / 1024 / 1024).toFixed(0)} MB groß. Das ist zu groß für die Datenbank – schneide es etwas kürzer.`);
     progress('Inhalt wird geprüft …', 0);
     const clean = await checkVideo(blob, duration, p => progress(`Inhalt wird geprüft … ${Math.round(p * 100)} %`, p));
@@ -1819,7 +2238,7 @@ async function finishUpload(prepared, duration) {
     const chunks = Math.ceil(blob.size / CHUNK_BYTES);
     ref = videos().doc();
     await ref.set({
-      owner: myUid(), caption, type, size: blob.size, chunks,
+      owner: myUid(), caption, type, size: blob.size, chunks, ...(mime ? { mime } : {}),
       duration: isFinite(duration) ? Math.round(duration * 10) / 10 : 0,
       thumb, likes: 0, comments: 0, ready: false, createdAt: serverTime(),
     });
@@ -1831,6 +2250,7 @@ async function finishUpload(prepared, duration) {
     }
     S.wantTop = ref.id;
     await ref.update({ ready: true });
+    notifyMentions(ref.id, caption);
     progress('Fertig!', 1);
     resetUpload();
     S.upload.busy = false;
@@ -1862,6 +2282,55 @@ function resetUpload(keepCaption = false) {
   $('upload-submit').disabled = true;
 }
 
+// ---------- Als App installieren ----------
+const isStandalone = () => window.matchMedia('(display-mode: standalone)').matches || navigator.standalone === true;
+const isIOS = () => /iphone|ipad|ipod/i.test(navigator.userAgent) || (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1);
+
+window.addEventListener('beforeinstallprompt', (e) => {
+  // Chrome/Android: eigenen „Installieren“-Knopf anbieten statt der Browser-Leiste
+  e.preventDefault();
+  S.installPrompt = e;
+  if (S.view === 'profile' && S.profileUid === myUid()) renderProfile(myUid());
+});
+window.addEventListener('appinstalled', () => {
+  S.installPrompt = null;
+  toast('Clips ist jetzt auf deinem Home-Bildschirm.');
+});
+
+function installSection() {
+  if (isStandalone()) return null;
+  const sec = el('section', 'group install');
+  sec.append(el('h3', null, 'Clips als App'));
+  if (S.installPrompt) {
+    sec.append(el('p', 'dim small', 'Mit eigenem Symbol auf dem Home-Bildschirm, im Vollbild und ohne Browserleiste.'));
+    const b = button('', async () => {
+      const p = S.installPrompt;
+      S.installPrompt = null;
+      p.prompt();
+      await p.userChoice.catch(() => {});
+      renderProfile(myUid());
+    }, 'primary');
+    b.append(icon('download'), document.createTextNode(' Installieren'));
+    sec.append(b);
+  } else if (isIOS()) {
+    const steps = el('ol', 'install-steps');
+    steps.append(
+      el('li', null, 'In Safari unten bzw. oben auf das Teilen-Symbol tippen (Quadrat mit Pfeil nach oben).'),
+      el('li', null, '„Zum Home-Bildschirm“ wählen (evtl. etwas nach unten scrollen).'),
+      el('li', null, 'Oben rechts auf „Hinzufügen“ tippen.'));
+    sec.append(el('p', 'dim small', 'So kommt Clips als App auf deinen Home-Bildschirm:'), steps);
+  } else {
+    sec.append(el('p', 'dim small', 'Im Browser-Menü (⋮) auf „App installieren“ bzw. „Zum Startbildschirm hinzufügen“ tippen.'));
+  }
+  return sec;
+}
+
+if ('serviceWorker' in navigator) {
+  window.addEventListener('load', () => {
+    navigator.serviceWorker.register('sw.js').catch(e => console.warn('Service Worker nicht registriert', e));
+  });
+}
+
 // ---------- Knöpfe ----------
 $('login-form').onsubmit = (e) => { e.preventDefault(); login(false); };
 $('login-register').onclick = () => login(true);
@@ -1878,6 +2347,7 @@ $('sound').onclick = () => setMuted(!S.muted);
 $('comments-close').onclick = closeComments;
 $('comments').onclick = (e) => { if (e.target === $('comments')) closeComments(); };
 $('comments-form').onsubmit = sendComment;
+$('comments-reply-cancel').onclick = cancelReply;
 $('report-close').onclick = closeReport;
 $('report').onclick = (e) => { if (e.target === $('report')) closeReport(); };
 for (const b of document.querySelectorAll('[data-reason]')) b.onclick = () => sendReport(b.dataset.reason);

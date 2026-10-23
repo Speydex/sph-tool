@@ -153,7 +153,8 @@ function compressVideo(probe, onProgress) {
   rec.start(1000);
   return v.play()
     .then(() => { requestAnimationFrame(draw); return recorded; })
-    .then(blob => ({ blob, type: blob.type }))
+    // mime mit Codecs merken: damit kann das Video später stückweise (gestreamt) laufen
+    .then(blob => ({ blob, type: blob.type, mime: type }))
     .catch(e => {
       finish();
       if (e && e.name === 'NotAllowedError') throw new Error('Der Browser hat das Abspielen blockiert. Tippe nochmal auf Posten.');

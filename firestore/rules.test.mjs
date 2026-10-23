@@ -149,5 +149,66 @@ await t('eve cannot delete report', deleteDoc(doc(eve, 'clipsReports/r1_eve')), 
 await t('admin reads reports', getDocs(collection(admin, 'clipsReports')), true);
 await t('admin approves (reset + delete)', (() => { const b = writeBatch(admin); b.delete(doc(admin, 'clipsReports/r1_eve')); b.delete(doc(admin, 'clipsReports/r1_admin')); b.update(doc(admin, 'clipsVideos/r1'), { reports: 0 }); return b.commit(); })(), true);
 await t('admin cannot set reports to 5', updateDoc(doc(admin, 'clipsVideos/r1'), { reports: 5 }), false);
+
+// ---------- Aktivität, Antworten, Kommentar-Likes ----------
+await env.withSecurityRulesDisabled(c => setDoc(doc(c.firestore(), 'clipsVideos/a1'), { owner: 'anna', caption: 'x', ready: true, chunks: 1, likes: 0, comments: 0 }));
+const item = (d, to, data) => doc(collection(d, `clipsInbox/${to}/items`));
+// Like mit Benachrichtigung
+{
+  const b = writeBatch(eve);
+  b.set(doc(eve, 'clipsVideos/a1/likes/eve'), { at: serverTimestamp() });
+  b.update(doc(eve, 'clipsVideos/a1'), { likes: increment(1) });
+  b.set(item(eve, 'anna'), { type: 'like', from: 'eve', videoId: 'a1', at: serverTimestamp() });
+  await t('like + inbox item', b.commit(), true);
+}
+await t('fake like notification (no like)', setDoc(item(admin, 'anna'), { type: 'like', from: 'admin', videoId: 'a1', at: serverTimestamp() }), false);
+await t('notification as someone else', setDoc(item(eve, 'anna'), { type: 'like', from: 'admin', videoId: 'a1', at: serverTimestamp() }), false);
+await t('like notification to wrong person', setDoc(item(eve, 'admin'), { type: 'like', from: 'eve', videoId: 'a1', at: serverTimestamp() }), false);
+await t('no notification to myself', setDoc(item(eve, 'eve'), { type: 'follow', from: 'eve', at: serverTimestamp() }), false);
+await t('unknown type', setDoc(item(eve, 'anna'), { type: 'spam', from: 'eve', at: serverTimestamp() }), false);
+// Kommentar mit Antwort
+{
+  const b = writeBatch(eve);
+  b.set(doc(eve, 'clipsVideos/a1/comments/c1'), { uid: 'eve', text: 'hi @Anni', createdAt: serverTimestamp(), likes: 0 });
+  b.update(doc(eve, 'clipsVideos/a1'), { comments: increment(1) });
+  b.set(item(eve, 'anna'), { type: 'comment', from: 'eve', videoId: 'a1', commentId: 'c1', text: 'hi @Anni', at: serverTimestamp() });
+  await t('comment + inbox item', b.commit(), true);
+}
+{
+  const b = writeBatch(anna);
+  b.set(doc(anna, 'clipsVideos/a1/comments/c2'), { uid: 'anna', text: 'danke', createdAt: serverTimestamp(), likes: 0, replyTo: 'c1' });
+  b.update(doc(anna, 'clipsVideos/a1'), { comments: increment(1) });
+  b.set(item(anna, 'eve'), { type: 'reply', from: 'anna', videoId: 'a1', commentId: 'c2', text: 'danke', at: serverTimestamp() });
+  await t('reply + inbox item', b.commit(), true);
+}
+await t('reply notification for foreign comment', setDoc(item(admin, 'eve'), { type: 'reply', from: 'admin', videoId: 'a1', commentId: 'c2', at: serverTimestamp() }), false);
+await t('comment with likes preset', (() => { const b = writeBatch(eve); b.set(doc(eve, 'clipsVideos/a1/comments/c3'), { uid: 'eve', text: 'x', createdAt: serverTimestamp(), likes: 5 }); b.update(doc(eve, 'clipsVideos/a1'), { comments: increment(1) }); return b.commit(); })(), false);
+// Kommentar-Like
+const clike = (d, uid, add, notifyTo) => { const b = writeBatch(d); const c = doc(d, 'clipsVideos/a1/comments/c1'); if (add) b.set(doc(d, `clipsVideos/a1/comments/c1/likes/${uid}`), { at: serverTimestamp() }); else b.delete(doc(d, `clipsVideos/a1/comments/c1/likes/${uid}`)); b.update(c, { likes: increment(add ? 1 : -1) }); if (notifyTo) b.set(item(d, notifyTo), { type: 'commentLike', from: uid, videoId: 'a1', commentId: 'c1', text: 'hi', at: serverTimestamp() }); return b.commit(); };
+await t('anna likes comment + notify', clike(anna, 'anna', true, 'eve'), true);
+await t('anna cannot like comment twice', clike(anna, 'anna', true), false);
+await t('comment counter alone', updateDoc(doc(admin, 'clipsVideos/a1/comments/c1'), { likes: increment(1) }), false);
+await t('comment text not editable', updateDoc(doc(eve, 'clipsVideos/a1/comments/c1'), { text: 'neu' }), false);
+await t('anna unlikes comment', clike(anna, 'anna', false), true);
+// Folgen mit Benachrichtigung
+{
+  const b = writeBatch(eve);
+  b.update(doc(eve, 'clipsMembers/eve'), { following: arrayUnion('anna') });
+  b.set(item(eve, 'anna'), { type: 'follow', from: 'eve', at: serverTimestamp() });
+  await t('follow + inbox item', b.commit(), true);
+}
+await t('fake follow notification', setDoc(item(admin, 'eve'), { type: 'follow', from: 'admin', at: serverTimestamp() }), false);
+// Erwähnung in eigener Videobeschreibung
+await t('mention in own video', setDoc(item(anna, 'eve'), { type: 'mention', from: 'anna', videoId: 'a1', at: serverTimestamp() }), true);
+await t('mention in foreign video', setDoc(item(eve, 'admin'), { type: 'mention', from: 'eve', videoId: 'a1', at: serverTimestamp() }), false);
+// Postfach lesen/löschen
+await t('anna reads own inbox', getDocs(collection(anna, 'clipsInbox/anna/items')), true);
+await t('eve cannot read anna inbox', getDocs(collection(eve, 'clipsInbox/anna/items')), false);
+const annaItems = await getDocs(collection(anna, 'clipsInbox/anna/items'));
+await t('anna deletes own item', deleteDoc(annaItems.docs[0].ref), true);
+await t('activityAt in new seen doc (no ids)', setDoc(doc(ben, 'clipsSeen/ben'), { activityAt: 5 }, { merge: true }), true);
+await t('activityAt in seen doc', setDoc(doc(anna, 'clipsSeen/anna'), { activityAt: 123 }, { merge: true }), true);
+await t('video with mime', setDoc(doc(anna, 'clipsVideos/m1'), vid({ mime: 'video/webm;codecs=vp9,opus', chunks: 3 })), true);
+await t('owner deletes comment with likes cleanup', (async () => { const b = writeBatch(anna); b.delete(doc(anna, 'clipsVideos/a1/comments/c2')); b.update(doc(anna, 'clipsVideos/a1'), { comments: increment(-1) }); return b.commit(); })(), true);
 await env.cleanup();
 console.log(process.exitCode ? `\nFehlgeschlagen (${n} Tests)` : `\nAlle ${n} Tests bestanden.`);

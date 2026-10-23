@@ -46,6 +46,10 @@
 //   wieder beitreten. Nur der Admin legt Sperren an und hebt sie auf.
 // - clipsSeen/{userId}: Welche Videos man schon gesehen hat (für die
 //   Reihenfolge im Feed). Nur man selbst kann das lesen und schreiben.
+// - clipsInbox/{userId}/items/{id}: Aktivität (Likes, Kommentare, Antworten,
+//   Erwähnungen, neue Follower). Nur die Person selbst liest und löscht ihre
+//   Einträge. Anlegen darf man nur Einträge über etwas, das man gerade selbst
+//   getan hat (z. B. muss das eigene Like wirklich existieren).
 // - clipsReports/{videoId_userId}: Meldungen. Jede*r kann ein Video einmal
 //   melden; dabei steigt der Zähler reports am Video um genau 1 (dann ist es
 //   ausgeblendet). Nur der Admin sieht die Meldungen, löscht sie und setzt
@@ -148,8 +152,35 @@ service cloud.firestore {
     match /clipsSeen/{userId} {
       allow read: if request.auth != null && request.auth.uid == userId;
       allow write: if request.auth != null && request.auth.uid == userId
-        && request.resource.data.keys().hasOnly(['ids'])
-        && request.resource.data.ids is map;
+        && request.resource.data.keys().hasOnly(['ids', 'activityAt'])
+        && request.resource.data.get('ids', {}) is map
+        && request.resource.data.get('activityAt', 0) is number;
+    }
+    match /clipsInbox/{userId}/items/{itemId} {
+      function d() { return request.resource.data; }
+      function vid() { return /databases/$(database)/documents/clipsVideos/$(d().videoId); }
+      function comment() { return /databases/$(database)/documents/clipsVideos/$(d().videoId)/comments/$(d().commentId); }
+      allow read, delete: if request.auth != null && request.auth.uid == userId;
+      allow create: if clipsMember()
+        && userId != request.auth.uid
+        && d().keys().hasOnly(['type', 'from', 'videoId', 'commentId', 'text', 'at'])
+        && d().from == request.auth.uid
+        && d().at == request.time
+        && d().get('text', '') is string && d().get('text', '').size() <= 120
+        && (
+          (d().type == 'like'
+            && existsAfter(/databases/$(database)/documents/clipsVideos/$(d().videoId)/likes/$(request.auth.uid))
+            && get(vid()).data.owner == userId)
+          || (d().type in ['comment', 'reply', 'mention'] && d().get('commentId', null) is string
+            && getAfter(comment()).data.uid == request.auth.uid)
+          || (d().type == 'mention' && d().get('commentId', null) == null
+            && getAfter(vid()).data.owner == request.auth.uid)
+          || (d().type == 'commentLike'
+            && existsAfter(/databases/$(database)/documents/clipsVideos/$(d().videoId)/comments/$(d().commentId)/likes/$(request.auth.uid))
+            && get(comment()).data.uid == userId)
+          || (d().type == 'follow'
+            && getAfter(/databases/$(database)/documents/clipsMembers/$(request.auth.uid)).data.get('following', []).hasAny([userId]))
+        );
     }
     match /clipsReports/{reportId} {
       allow read, delete: if clipsAdmin();
@@ -215,9 +246,10 @@ service cloud.firestore {
       // Entweder ein hochgeladenes Video (in Stücken) oder ein eingebetteter
       // TikTok-/YouTube-Link (ohne Stücke, sofort fertig)
       function uploadedVideo() {
-        return request.resource.data.keys().hasOnly(['owner', 'caption', 'type', 'size', 'chunks', 'duration',
+        return request.resource.data.keys().hasOnly(['owner', 'caption', 'type', 'mime', 'size', 'chunks', 'duration',
                                                      'thumb', 'likes', 'comments', 'ready', 'createdAt'])
           && request.resource.data.type is string && request.resource.data.type.size() <= 60
+          && request.resource.data.get('mime', '') is string && request.resource.data.get('mime', '').size() <= 100
           && request.resource.data.size is int
           && request.resource.data.chunks is int
           && request.resource.data.chunks >= 1 && request.resource.data.chunks <= 300
@@ -287,18 +319,47 @@ service cloud.firestore {
           || clipsAdmin());
       }
       match /comments/{commentId} {
+        function cPath() {
+          return /databases/$(database)/documents/clipsVideos/$(videoId)/comments/$(commentId);
+        }
+        function myCommentLike() {
+          return /databases/$(database)/documents/clipsVideos/$(videoId)/comments/$(commentId)/likes/$(request.auth.uid);
+        }
         allow read: if clipsMember();
         allow create: if clipsMember()
-          && request.resource.data.keys().hasOnly(['uid', 'text', 'createdAt'])
+          && request.resource.data.keys().hasOnly(['uid', 'text', 'createdAt', 'replyTo', 'likes'])
           && request.resource.data.uid == request.auth.uid
           && request.resource.data.text is string
           && request.resource.data.text.size() >= 1 && request.resource.data.text.size() <= 300
           && request.resource.data.createdAt == request.time
+          && request.resource.data.get('likes', 0) == 0
+          && (request.resource.data.get('replyTo', null) == null
+              || (request.resource.data.replyTo is string && request.resource.data.replyTo.size() <= 40))
           && videoAfter().comments == video().comments + 1;
+        // Nur der Like-Zähler darf sich ändern, und nur zusammen mit dem eigenen Like
+        allow update: if clipsMember()
+          && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['likes'])
+          && ((request.resource.data.likes == resource.data.get('likes', 0) + 1
+               && !exists(myCommentLike()) && existsAfter(myCommentLike()))
+              || (request.resource.data.likes == resource.data.get('likes', 0) - 1
+               && exists(myCommentLike()) && !existsAfter(myCommentLike())));
         allow delete: if request.auth != null && (
           resource.data.uid == request.auth.uid
           || video().owner == request.auth.uid
           || clipsAdmin());
+
+        match /likes/{userId} {
+          allow read: if clipsMember();
+          allow create: if clipsMember() && request.auth.uid == userId
+            && request.resource.data.keys().hasOnly(['at'])
+            && getAfter(cPath()).data.get('likes', 0) == get(cPath()).data.get('likes', 0) + 1;
+          allow delete: if request.auth != null && (
+            (request.auth.uid == userId
+              && (!existsAfter(cPath())
+                  || getAfter(cPath()).data.get('likes', 0) == get(cPath()).data.get('likes', 0) - 1))
+            || video().owner == request.auth.uid
+            || clipsAdmin());
+        }
       }
     }
   }
