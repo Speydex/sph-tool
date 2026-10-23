@@ -51,10 +51,14 @@
 <section id="screen-app" class="screen" hidden>
   <div id="view-feed" class="view">
     <div id="feed" class="feed"></div>
+    <div class="feed-modes" role="tablist">
+      <button type="button" class="feed-mode" data-mode="following" role="tab">Folge ich</button>
+      <button type="button" class="feed-mode active" data-mode="all" role="tab">Für dich</button>
+    </div>
     <div id="feed-empty" class="feed-empty" hidden>
       <span class="big" data-icon="film"></span>
-      <p>Noch keine Videos.</p>
-      <button type="button" class="primary" data-go="upload">Erstes Video posten</button>
+      <p id="feed-empty-text">Noch keine Videos.</p>
+      <button type="button" id="feed-empty-btn" class="primary" data-go="upload">Erstes Video posten</button>
     </div>
     <button type="button" id="feed-new" class="pill new-pill" hidden><span data-icon="arrowUp"></span> Neue Videos</button>
   </div>
@@ -78,12 +82,24 @@
     </form>
   </div>
 
+  <div id="view-search" class="view scroll" hidden>
+    <div class="page">
+      <form id="search-form" class="search-box" role="search">
+        <span data-icon="search"></span>
+        <label for="search-input" class="sr-only">Suchen</label>
+        <input id="search-input" type="search" placeholder="Kanäle, Videos, #hashtags suchen" autocomplete="off" enterkeyhint="search">
+      </form>
+      <div id="search-results"></div>
+    </div>
+  </div>
+
   <div id="view-profile" class="view scroll" hidden>
     <div id="profile" class="page"></div>
   </div>
 
   <nav class="tabbar">
     <button type="button" class="tab" data-go="feed"><span data-icon="home"></span><span>Feed</span></button>
+    <button type="button" class="tab" data-go="search"><span data-icon="search"></span><span>Suche</span></button>
     <button type="button" class="tab tab-plus" data-go="upload" aria-label="Video posten"><b><span data-icon="plus"></span></b></button>
     <button type="button" class="tab" data-go="profile"><span data-icon="user"></span><span>Profil</span></button>
   </nav>

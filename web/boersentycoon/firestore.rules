@@ -38,7 +38,8 @@
 //   am Zug ist; beendete Partien sind unveränderlich.
 //
 // Clips (web/clips/, Videos nur für Freunde):
-// - clipsMembers/{userId}: Wer in der Gruppe ist (Anzeigename, Profilbild). Nur
+// - clipsMembers/{userId}: Wer in der Gruppe ist (Anzeigename, Profilbild,
+//   wem man folgt). Nur
 //   Mitglieder sehen die Liste. Beitreten kann jede*r mit Konto, außer wer
 //   gesperrt ist. Entfernen darf man sich selbst oder der Admin.
 // - clipsBanned/{userId}: Vom Admin entfernte Personen. Sie können nicht
@@ -158,10 +159,12 @@ service cloud.firestore {
         && clipsNameClaimed(userId)
         && !exists(/databases/$(database)/documents/clipsBanned/$(userId));
       allow update: if request.auth != null && request.auth.uid == userId
-        && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['name', 'nameKey', 'photo'])
+        && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['name', 'nameKey', 'photo', 'following'])
         && (!request.resource.data.diff(resource.data).affectedKeys().hasAny(['name', 'nameKey'])
             || (clipsName(request.resource.data.name) && clipsNameClaimed(userId)))
-        && clipsPhoto(request.resource.data.get('photo', null));
+        && clipsPhoto(request.resource.data.get('photo', null))
+        && request.resource.data.get('following', []) is list
+        && request.resource.data.get('following', []).size() <= 500;
       allow delete: if request.auth != null && (request.auth.uid == userId || clipsAdmin());
     }
     match /clipsNames/{key} {

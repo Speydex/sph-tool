@@ -5,7 +5,7 @@
  * veröffentlicht sein (siehe CLIPS_SETUP.md).
  *
  * Datenmodell:
- *   clipsMembers/{uid}              { name, nameKey, photo, joinedAt }   wer drin ist
+ *   clipsMembers/{uid}              { name, nameKey, photo, following: [uid], joinedAt }   wer drin ist
  *   clipsBanned/{uid}               { name, at }                vom Admin gesperrt
  *   clipsSeen/{uid}                 { ids: {videoId: ms} }      welche Videos man schon gesehen hat
  *   clipsNames/{nameKey}            { uid }                     sorgt dafür, dass jeder Name nur einmal vorkommt
@@ -31,6 +31,8 @@ const S = {
   feedLimit: FEED_PAGE,
   feedVideos: [],           // alles, was die Datenbank gerade liefert
   order: null,              // Reihenfolge im Feed (Video-IDs), einmal pro Sitzung berechnet
+  feedMode: 'all',          // 'all' = Für dich, 'following' = nur Leute, denen man folgt
+  allVideos: null,          // für die Suche: alle Videos (einmal geladen)
   seen: new Map(),          // videoId -> wann zuletzt gesehen (ms)
   seenDirty: {},
   feed: null, player: null,
@@ -80,6 +82,8 @@ const ICONS = {
   film: '<rect x="3" y="4" width="18" height="16" rx="2"/><path d="M7 4v16M17 4v16M3 9h4M3 15h4M17 9h4M17 15h4"/>',
   camera: '<rect x="2.5" y="6" width="13" height="12" rx="2"/><path d="m15.5 10.5 6-3.5v10l-6-3.5z"/>',
   arrowUp: '<path d="M12 19V5M6 11l6-6 6 6"/>',
+  search: '<circle cx="11" cy="11" r="7"/><path d="m20 20-3.5-3.5"/>',
+  check: '<path d="m5 12.5 4.5 4.5L19 7.5"/>',
 };
 
 function icon(name, cls = '') {
@@ -329,11 +333,15 @@ function startApp() {
       onAuth(S.user);
       return;
     }
+    const before = JSON.stringify((S.me && S.me.following) || []);
     S.me = S.members.get(myUid());
     if (!S.me.nameKey) migrateName();
+    // Neuen Leuten gefolgt oder entfolgt: „Folge ich“-Feed neu sortieren
+    if (S.feedMode === 'following' && before !== JSON.stringify(S.me.following || []) && S.order) arrangeFeed({ reset: true });
     S.feed.refreshNames();
     if (S.player) S.player.refreshNames();
     if (S.view === 'profile') renderProfile(S.profileUid);
+    if (S.view === 'search') renderSearch();
   }, err => {
     // Passiert, wenn der Admin einen rauswirft: Mitgliedschaft neu prüfen
     if (err.code === 'permission-denied') {
@@ -391,6 +399,7 @@ function rankVideos(list) {
     return 10 * Math.pow(0.5, hours / 48)     // Frische: halbiert sich alle 2 Tage
       + 2 * Math.log1p(v.likes || 0)
       + 2 * Math.log1p(v.comments || 0)
+      + (follows(v.owner) ? 8 : 0)             // Leute, denen man folgt, kommen öfter
       + 4 * Math.random();
   };
   const lastSeen = (v) => (S.seen.get(v.id) || millis(v.createdAt)) + Math.random() * 6 * 3600000;
@@ -414,15 +423,16 @@ function spreadOwners(list) {
 // Neu gepostete Videos von anderen gibt es über „Neue Videos“, ältere (beim
 // Weiterscrollen nachgeladene) kommen hinten dran.
 function arrangeFeed({ reset = false } = {}) {
-  const byId = new Map(S.feedVideos.map(v => [v.id, v]));
+  const source = S.feedMode === 'following' ? S.feedVideos.filter(v => follows(v.owner)) : S.feedVideos;
+  const byId = new Map(source.map(v => [v.id, v]));
   let pending = [];
   if (reset || !S.order || !S.order.length) {
-    S.order = rankVideos(S.feedVideos).map(v => v.id);
+    S.order = rankVideos(source).map(v => v.id);
   } else {
     S.order = S.order.filter(id => byId.has(id));
     const known = new Set(S.order);
     const oldest = Math.min(...S.order.map(id => millis(byId.get(id).createdAt)));
-    const extra = S.feedVideos.filter(v => !known.has(v.id));
+    const extra = source.filter(v => !known.has(v.id));
     pending = extra.filter(v => millis(v.createdAt) > oldest && v.id !== S.wantTop);
     const older = extra.filter(v => !pending.includes(v) && v.id !== S.wantTop);
     S.order.push(...rankVideos(older).map(v => v.id));
@@ -435,7 +445,54 @@ function arrangeFeed({ reset = false } = {}) {
   }
   S.feed.update(S.order.map(id => byId.get(id)));
   $('feed-new').hidden = !pending.length;
-  $('feed-empty').hidden = S.feedVideos.length > 0;
+  $('feed-empty').hidden = source.length > 0;
+  const followingMode = S.feedMode === 'following';
+  $('feed-empty-text').textContent = followingMode
+    ? (myFollowing().size ? 'Die Leute, denen du folgst, haben noch nichts gepostet.' : 'Du folgst noch niemandem.')
+    : 'Noch keine Videos.';
+  $('feed-empty-btn').textContent = followingMode ? 'Kanäle suchen' : 'Erstes Video posten';
+  $('feed-empty-btn').dataset.go = followingMode ? 'search' : 'upload';
+}
+
+function setFeedMode(mode) {
+  if (S.feedMode === mode) return;
+  S.feedMode = mode;
+  for (const b of document.querySelectorAll('.feed-mode')) b.classList.toggle('active', b.dataset.mode === mode);
+  arrangeFeed({ reset: true });
+  S.feed.root.scrollTo({ top: 0 });
+}
+
+// ---------- Folgen ----------
+function myFollowing() {
+  return new Set((S.me && S.me.following) || []);
+}
+
+function follows(uid) {
+  return myFollowing().has(uid);
+}
+
+function followerCount(uid) {
+  let n = 0;
+  for (const m of S.members.values()) if ((m.following || []).includes(uid)) n++;
+  return n;
+}
+
+async function toggleFollow(uid) {
+  if (uid === myUid()) return;
+  const was = follows(uid);
+  const field = firebase.firestore.FieldValue;
+  try {
+    await S.db.collection('clipsMembers').doc(myUid())
+      .update({ following: was ? field.arrayRemove(uid) : field.arrayUnion(uid) });
+    toast(was ? `Du folgst ${nameOf(uid)} nicht mehr.` : `Du folgst jetzt ${nameOf(uid)}.`);
+  } catch (e) { showError(e); }
+}
+
+function followButton(uid, cls = '') {
+  const on = follows(uid);
+  const b = button(on ? 'Folge ich' : 'Folgen', (e) => { e.stopPropagation(); toggleFollow(uid); },
+    (on ? 'small following ' : 'small primary ') + cls);
+  return b;
 }
 
 function showNewVideos() {
@@ -484,12 +541,15 @@ function loadMore() {
   subscribeFeed();
 }
 
+const VIEWS = ['feed', 'search', 'upload', 'profile'];
+
 function go(view) {
   if (S.upload.busy && view !== 'upload') { toast('Warte, bis dein Video hochgeladen ist.'); return; }
   S.view = view;
-  for (const v of ['feed', 'upload', 'profile']) $('view-' + v).hidden = v !== view;
+  for (const v of VIEWS) $('view-' + v).hidden = v !== view;
   for (const t of document.querySelectorAll('.tab')) t.classList.toggle('active', t.dataset.go === view);
   closePlayer();
+  if (view === 'search') openSearch();
   if (view === 'feed') S.feed.resume();
   else S.feed.pause();
   if (view === 'profile') renderProfile(myUid());
@@ -626,7 +686,7 @@ class Feed {
     meta.append(who, when, caption);
 
     const actions = el('div', 'actions');
-    const prof = button('', () => openProfile(s.data.owner), 'act');
+    const prof = button('', () => openProfile(s.data.owner), 'act prof');
     const like = button('', () => this.toggleLike(s), 'act like');
     like.append(icon('heart', 'ico'), el('span', 'n'));
     const comment = button('', () => openComments(s.data), 'act');
@@ -677,6 +737,14 @@ class Feed {
     s.caption.textContent = v.caption || '';
     s.caption.hidden = !v.caption;
     s.prof.replaceChildren(avatar(v.owner, 'big'));
+    if (v.owner !== myUid() && !follows(v.owner)) {
+      // Kleines Plus unter dem Profilbild wie bei TikTok
+      const plus = el('span', 'follow-badge');
+      plus.append(icon('plus'));
+      plus.title = 'Folgen';
+      plus.onclick = (e) => { e.stopPropagation(); toggleFollow(v.owner); };
+      s.prof.append(plus);
+    }
     s.like.querySelector('.n').textContent = count(v.likes);
     s.like.classList.toggle('on', !!S.liked.get(v.id));
     s.comment.querySelector('.n').textContent = count(v.comments);
@@ -870,8 +938,9 @@ async function deleteVideo(v, quiet = false) {
 function openProfile(uid) {
   closePlayer();
   if (S.view !== 'profile') {
+    S.profileBack = S.view;
     S.view = 'profile';
-    for (const v of ['feed', 'upload', 'profile']) $('view-' + v).hidden = v !== 'profile';
+    for (const v of VIEWS) $('view-' + v).hidden = v !== 'profile';
     for (const t of document.querySelectorAll('.tab')) t.classList.toggle('active', t.dataset.go === 'profile' && uid === myUid());
     S.feed.pause();
     $('sound').hidden = true;
@@ -894,12 +963,18 @@ async function renderProfile(uid) {
 
   box.innerHTML = '';
   const head = el('div', 'profile-head');
-  if (!own) head.append(button('‹ Zurück', () => go('feed'), 'link back'));
+  if (!own) head.append(button('‹ Zurück', () => go(S.profileBack || 'feed'), 'link back'));
   head.append(avatar(uid, 'huge'), el('h2', null, nameOf(uid)));
   const stats = el('p', 'stats');
   const likes = list.reduce((n, v) => n + (v.likes || 0), 0);
-  stats.append(el('span', null, `${list.filter(v => v.ready).length} Videos`), el('span', null, `${likes} Likes`));
+  const followingCount = ((S.members.get(uid) || {}).following || []).filter(f => S.members.has(f)).length;
+  stats.append(
+    stat(list.filter(v => v.ready).length, 'Videos'),
+    stat(followerCount(uid), 'Follower'),
+    stat(followingCount, 'Folgt'),
+    stat(likes, 'Likes'));
   head.append(stats);
+  if (!own && S.members.has(uid)) head.append(followButton(uid, 'follow-big'));
   box.append(head);
 
   if (own) {
@@ -936,25 +1011,104 @@ async function renderProfile(uid) {
 
   const grid = el('div', 'grid');
   list.forEach((v) => {
+    if (v.ready) {
+      grid.append(videoCell(v, () => openPlayer(list.filter(x => x.ready), v.id)));
+      return;
+    }
     const cell = el('button', 'cell');
     cell.type = 'button';
     if (v.thumb) cell.style.backgroundImage = `url("${v.thumb}")`;
-    if (v.ready) {
-      const likes = el('span', 'cell-likes');
-      likes.append(icon('heart', 'filled'), document.createTextNode(count(v.likes)));
-      cell.append(likes);
-      cell.onclick = () => openPlayer(list.filter(x => x.ready), v.id);
-    } else {
-      cell.classList.add('broken');
-      cell.append(el('span', 'cell-note', 'Upload abgebrochen – tippen zum Löschen'));
-      cell.onclick = () => deleteVideo(v);
-    }
+    cell.classList.add('broken');
+    cell.append(el('span', 'cell-note', 'Upload abgebrochen – tippen zum Löschen'));
+    cell.onclick = () => deleteVideo(v);
     grid.append(cell);
   });
   if (!list.length) grid.append(el('p', 'dim', own ? 'Du hast noch keine Videos gepostet.' : 'Noch keine Videos.'));
   box.append(grid);
 
   if (own) renderGroup(box);
+}
+
+function stat(n, label) {
+  const s = el('span', 'stat');
+  s.append(el('b', null, count(n)), el('span', null, label));
+  return s;
+}
+
+// ---------- Suche ----------
+async function openSearch() {
+  renderSearch();
+  // Für die Suche alle Videos einmal holen (der Feed lädt nur die neuesten)
+  if (!S.allVideos || Date.now() - S.allVideosAt > 60000) {
+    try {
+      const snap = await videos().orderBy('createdAt', 'desc').limit(500).get();
+      S.allVideos = snap.docs.map(videoData).filter(v => v.ready);
+      S.allVideosAt = Date.now();
+      if (S.view === 'search') renderSearch();
+    } catch (e) { showError(e); }
+  }
+}
+
+function normalize(text) {
+  return (text || '').toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '');
+}
+
+function renderSearch() {
+  const box = $('search-results');
+  const q = normalize($('search-input').value.trim()).replace(/^@/, '');
+  box.innerHTML = '';
+
+  // Kanäle
+  const channels = [...S.members.entries()]
+    .filter(([uid, m]) => !q || normalize(m.name).includes(q))
+    .sort((a, b) => followerCount(b[0]) - followerCount(a[0]) || a[1].name.localeCompare(b[1].name));
+  const all = S.allVideos || [];
+  if (channels.length) {
+    box.append(el('h3', 'search-head', q ? 'Kanäle' : 'Alle Kanäle'));
+    const ul = el('ul', 'list channels');
+    for (const [uid, m] of channels.slice(0, q ? 20 : 50)) {
+      const li = el('li', 'row');
+      const open = button('', () => openProfile(uid), 'member grow');
+      const text = el('span', 'channel-text');
+      const n = all.filter(v => v.owner === uid).length;
+      text.append(el('b', null, m.name + (uid === myUid() ? ' (du)' : '')),
+        el('span', 'dim small', `${followerCount(uid)} Follower · ${n} Videos`));
+      open.append(avatar(uid, 'mid'), text);
+      li.append(open);
+      if (uid !== myUid()) li.append(followButton(uid));
+      ul.append(li);
+    }
+    box.append(ul);
+  }
+
+  // Videos: Beschreibung, #hashtags oder Name passen
+  if (q) {
+    const found = all.filter(v => normalize(v.caption).includes(q) || normalize(nameOf(v.owner)).includes(q));
+    if (found.length || channels.length) box.append(el('h3', 'search-head', 'Videos'));
+    if (found.length) {
+      const grid = el('div', 'grid');
+      for (const v of found) grid.append(videoCell(v, () => openPlayer(found, v.id), true));
+      box.append(grid);
+    }
+    if (!found.length && !channels.length) box.append(el('p', 'dim', `Nichts gefunden für „${$('search-input').value.trim()}“.`));
+    else if (!found.length) box.append(el('p', 'dim', 'Keine passenden Videos.'));
+  } else if (!S.allVideos) {
+    box.append(el('p', 'dim', 'Lädt …'));
+  }
+}
+
+// Vorschaubild für Raster (Profil und Suche)
+function videoCell(v, onClick, withName = false) {
+  const cell = el('button', 'cell');
+  cell.type = 'button';
+  if (v.thumb) cell.style.backgroundImage = `url("${v.thumb}")`;
+  const likes = el('span', 'cell-likes');
+  likes.append(icon('heart', 'filled'), document.createTextNode(count(v.likes)));
+  cell.append(likes);
+  if (withName) cell.append(el('span', 'cell-name', '@' + nameOf(v.owner)));
+  if (v.caption) cell.title = v.caption;
+  cell.onclick = onClick;
+  return cell;
 }
 
 function renderGroup(box) {
@@ -1259,6 +1413,9 @@ $('join-form').onsubmit = join;
 $('join-logout').onclick = () => S.auth.signOut();
 for (const b of document.querySelectorAll('[data-go]')) b.onclick = () => go(b.dataset.go);
 $('feed-new').onclick = showNewVideos;
+for (const b of document.querySelectorAll('.feed-mode')) b.onclick = () => setFeedMode(b.dataset.mode);
+$('search-input').oninput = renderSearch;
+$('search-form').onsubmit = (e) => { e.preventDefault(); $('search-input').blur(); };
 $('player-close').onclick = () => { closePlayer(); if (S.view === 'feed') S.feed.resume(); };
 $('sound').onclick = () => setMuted(!S.muted);
 $('comments-close').onclick = closeComments;
