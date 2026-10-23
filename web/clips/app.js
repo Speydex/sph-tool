@@ -7,6 +7,7 @@
  * Datenmodell:
  *   clipsMembers/{uid}              { name, nameKey, photo, joinedAt }   wer drin ist
  *   clipsBanned/{uid}               { name, at }                vom Admin gesperrt
+ *   clipsSeen/{uid}                 { ids: {videoId: ms} }      welche Videos man schon gesehen hat
  *   clipsNames/{nameKey}            { uid }                     sorgt dafür, dass jeder Name nur einmal vorkommt
  *   clipsVideos/{id}                { owner, caption, type, size, chunks, duration,
  *                                     thumb, likes, comments, ready, createdAt }
@@ -19,7 +20,8 @@
 const ADMIN_EMAIL = 'stark.liam2011@gmail.com';
 const CHUNK_BYTES = 900 * 1024;
 const MAX_CHUNKS = 40;
-const FEED_PAGE = 30;
+const FEED_PAGE = 60;
+const SEEN_AFTER_S = 2;      // so lange muss ein Video laufen, bis es als gesehen zählt
 const URL_CACHE = 8;
 
 const S = {
@@ -27,6 +29,10 @@ const S = {
   members: new Map(),
   unsubs: [],
   feedLimit: FEED_PAGE,
+  feedVideos: [],           // alles, was die Datenbank gerade liefert
+  order: null,              // Reihenfolge im Feed (Video-IDs), einmal pro Sitzung berechnet
+  seen: new Map(),          // videoId -> wann zuletzt gesehen (ms)
+  seenDirty: {},
   feed: null, player: null,
   view: 'feed',
   liked: new Map(),         // videoId -> true/false (nur was schon geladen wurde)
@@ -312,7 +318,9 @@ function startApp() {
       onAuth(S.user);
     } else showError(err);
   }));
-  subscribeFeed();
+  const token = (startApp.token = (startApp.token || 0) + 1);
+  // Erst wissen, was schon gesehen wurde, dann den Feed sortieren
+  loadSeen().then(() => { if (token === startApp.token && S.feed) subscribeFeed(); });
   go('feed');
 }
 
@@ -326,6 +334,11 @@ function stopApp() {
   if (S.feed) S.feed.destroy();
   S.feed = null;
   S.feedLimit = FEED_PAGE;
+  S.feedVideos = [];
+  S.order = null;
+  S.wantTop = null;
+  flushSeen();
+  S.seen = new Map();
   S.liked.clear();
   for (const p of S.urls.values()) p.then(URL.revokeObjectURL, () => {});
   S.urls.clear();
@@ -335,10 +348,110 @@ function subscribeFeed() {
   if (S.feedUnsub) S.feedUnsub();
   S.feedUnsub = videos().orderBy('createdAt', 'desc').limit(S.feedLimit).onSnapshot(snap => {
     S.feedFull = snap.size >= S.feedLimit;
-    const list = snap.docs.map(videoData).filter(v => v.ready);
-    S.feed.update(list);
-    $('feed-empty').hidden = list.length > 0;
+    S.feedVideos = snap.docs.map(videoData).filter(v => v.ready);
+    arrangeFeed();
   }, showError);
+}
+
+// ---------- Algorithmus: was als Nächstes kommt ----------
+// Zuerst Videos von anderen, die man noch nicht gesehen hat: neue und
+// beliebte weiter vorne, mit etwas Zufall, damit es nicht immer gleich ist.
+// Danach eigene und schon gesehene Videos, die am längsten nicht mehr
+// gesehenen zuerst. Dieselbe Person kommt möglichst nicht zweimal hintereinander.
+function rankVideos(list) {
+  const now = Date.now();
+  const fresh = [];
+  const old = [];
+  for (const v of list) (v.owner !== myUid() && !S.seen.has(v.id) ? fresh : old).push(v);
+  const score = (v) => {
+    const hours = (now - millis(v.createdAt)) / 3600000;
+    return 10 * Math.pow(0.5, hours / 48)     // Frische: halbiert sich alle 2 Tage
+      + 2 * Math.log1p(v.likes || 0)
+      + 2 * Math.log1p(v.comments || 0)
+      + 4 * Math.random();
+  };
+  const lastSeen = (v) => (S.seen.get(v.id) || millis(v.createdAt)) + Math.random() * 6 * 3600000;
+  const byScore = fresh.map(v => [score(v), v]).sort((a, b) => b[0] - a[0]).map(x => x[1]);
+  const byLastSeen = old.map(v => [lastSeen(v), v]).sort((a, b) => a[0] - b[0]).map(x => x[1]);
+  return [...spreadOwners(byScore), ...spreadOwners(byLastSeen)];
+}
+
+function spreadOwners(list) {
+  const rest = [...list];
+  const out = [];
+  while (rest.length) {
+    const prev = out[out.length - 1];
+    const i = rest.findIndex(v => !prev || v.owner !== prev.owner);
+    out.push(rest.splice(Math.max(i, 0), 1)[0]);
+  }
+  return out;
+}
+
+// Die Reihenfolge bleibt während der Sitzung stehen, sonst springt der Feed.
+// Neu gepostete Videos von anderen gibt es über „Neue Videos“, ältere (beim
+// Weiterscrollen nachgeladene) kommen hinten dran.
+function arrangeFeed({ reset = false } = {}) {
+  const byId = new Map(S.feedVideos.map(v => [v.id, v]));
+  let pending = [];
+  if (reset || !S.order || !S.order.length) {
+    S.order = rankVideos(S.feedVideos).map(v => v.id);
+  } else {
+    S.order = S.order.filter(id => byId.has(id));
+    const known = new Set(S.order);
+    const oldest = Math.min(...S.order.map(id => millis(byId.get(id).createdAt)));
+    const extra = S.feedVideos.filter(v => !known.has(v.id));
+    pending = extra.filter(v => millis(v.createdAt) > oldest && v.id !== S.wantTop);
+    const older = extra.filter(v => !pending.includes(v) && v.id !== S.wantTop);
+    S.order.push(...rankVideos(older).map(v => v.id));
+  }
+  if (S.wantTop && byId.has(S.wantTop)) {
+    // Das eigene, gerade gepostete Video direkt oben zeigen
+    S.order = [S.wantTop, ...S.order.filter(id => id !== S.wantTop)];
+    S.wantTop = null;
+    requestAnimationFrame(() => S.feed && S.feed.root.scrollTo({ top: 0 }));
+  }
+  S.feed.update(S.order.map(id => byId.get(id)));
+  $('feed-new').hidden = !pending.length;
+  $('feed-empty').hidden = S.feedVideos.length > 0;
+}
+
+function showNewVideos() {
+  arrangeFeed({ reset: true });
+  S.feed.root.scrollTo({ top: 0 });
+}
+
+// ---------- Gesehen merken ----------
+// Im Konto (damit es auf allen Geräten gilt) und zusätzlich im Browser.
+const seenKey = () => 'clips-seen-' + myUid();
+
+async function loadSeen() {
+  S.seen = new Map();
+  try {
+    for (const [id, t] of Object.entries(JSON.parse(localStorage.getItem(seenKey()) || '{}'))) S.seen.set(id, t);
+  } catch (e) { /* Browser-Speicher nicht verfügbar */ }
+  try {
+    const snap = await S.db.collection('clipsSeen').doc(myUid()).get();
+    const ids = (snap.exists && snap.data().ids) || {};
+    for (const [id, t] of Object.entries(ids)) if (!(S.seen.get(id) >= t)) S.seen.set(id, t);
+  } catch (e) { console.warn('Gesehene Videos nicht geladen', e); }
+}
+
+function markSeen(id) {
+  const t = Date.now();
+  S.seen.set(id, t);
+  S.seenDirty[id] = t;
+  try { localStorage.setItem(seenKey(), JSON.stringify(Object.fromEntries(S.seen))); } catch (e) { /* egal */ }
+  clearTimeout(markSeen.timer);
+  markSeen.timer = setTimeout(flushSeen, 5000);
+}
+
+function flushSeen() {
+  clearTimeout(markSeen.timer);
+  const ids = S.seenDirty;
+  if (!S.db || !S.user || !Object.keys(ids).length) return;
+  S.seenDirty = {};
+  S.db.collection('clipsSeen').doc(S.user.uid).set({ ids }, { merge: true })
+    .catch(e => console.warn('Gesehen nicht gespeichert', e));
 }
 
 function loadMore() {
@@ -412,7 +525,6 @@ class Feed {
     this.onNearEnd = onNearEnd;
     this.videos = [];
     this.slides = new Map();
-    this.pending = null;
     this.current = null;
     this.paused = false;
     this.root.innerHTML = '';
@@ -431,21 +543,9 @@ class Feed {
     this.slides.clear();
   }
 
-  // Neue Liste aus der Datenbank. Neue Videos oben drüber werden nicht sofort
-  // eingeschoben (sonst springt das Bild), sondern über „Neue Videos“ angeboten.
-  update(list, { force = false } = {}) {
-    const top = this.videos[0];
-    let fresh = top && !force ? list.filter(v => !this.slides.has(v.id) && millis(v.createdAt) > millis(top.createdAt)) : [];
-    if (fresh.some(v => v.id === this.wantTop)) {
-      // Das eigene, gerade gepostete Video direkt zeigen
-      this.wantTop = null;
-      fresh = [];
-      requestAnimationFrame(() => this.root.scrollTo({ top: 0 }));
-    }
-    const keep = list.filter(v => !fresh.includes(v));
-    this.pending = fresh.length ? list : null;
-    if (this === S.feed) $('feed-new').hidden = !fresh.length;
-
+  // Liste in genau dieser Reihenfolge anzeigen. Vorhandene Slides werden
+  // wiederverwendet, damit laufende Videos nicht neu starten.
+  update(keep) {
     for (const [id, s] of this.slides) {
       if (!keep.some(v => v.id === id)) {
         this.observer.unobserve(s.root);
@@ -471,12 +571,6 @@ class Feed {
       prev = s;
     }
     this.videos = keep;
-  }
-
-  showPending() {
-    if (!this.pending) return;
-    this.update(this.pending, { force: true });
-    this.root.scrollTo({ top: 0 });
   }
 
   scrollToId(id) {
@@ -536,6 +630,13 @@ class Feed {
       single = setTimeout(() => this.togglePause(s), 300);
     });
     video.addEventListener('waiting', () => { spinner.hidden = false; });
+    video.addEventListener('timeupdate', () => {
+      if (s.counted || !video.duration) return;
+      if (video.currentTime >= Math.min(SEEN_AFTER_S, video.duration * 0.8)) {
+        s.counted = true;
+        markSeen(s.data.id);
+      }
+    });
     video.addEventListener('playing', () => { spinner.hidden = true; paused.hidden = true; });
     spinner.hidden = true;
     paused.hidden = true;
@@ -1091,14 +1192,13 @@ async function finishUpload(prepared, duration) {
       const part = bytes.subarray(i * CHUNK_BYTES, (i + 1) * CHUNK_BYTES);
       await ref.collection('chunks').doc(chunkId(i)).set({ data: firebase.firestore.Blob.fromUint8Array(part) });
     }
-    S.feed.wantTop = ref.id;
+    S.wantTop = ref.id;
     await ref.update({ ready: true });
     progress('Fertig!', 1);
     resetUpload();
     S.upload.busy = false;
     toast('Video gepostet 🎉');
     go('feed');
-    S.feed.showPending();
     S.feed.root.scrollTo({ top: 0 });
   } catch (err) {
     S.upload.busy = false;
@@ -1129,7 +1229,7 @@ $('login-forgot').onclick = resetPassword;
 $('join-form').onsubmit = join;
 $('join-logout').onclick = () => S.auth.signOut();
 for (const b of document.querySelectorAll('[data-go]')) b.onclick = () => go(b.dataset.go);
-$('feed-new').onclick = () => S.feed.showPending();
+$('feed-new').onclick = showNewVideos;
 $('player-close').onclick = () => { closePlayer(); if (S.view === 'feed') S.feed.resume(); };
 $('sound').onclick = () => setMuted(!S.muted);
 $('comments-close').onclick = closeComments;
@@ -1138,6 +1238,7 @@ $('comments-form').onsubmit = sendComment;
 $('upload-file').onchange = pickFile;
 $('upload-form').onsubmit = postVideo;
 document.addEventListener('visibilitychange', () => {
+  if (document.hidden) flushSeen();
   for (const f of [S.feed, S.player]) {
     if (!f) continue;
     if (document.hidden) f.stop(f.current);

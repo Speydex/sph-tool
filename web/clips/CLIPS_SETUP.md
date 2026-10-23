@@ -32,6 +32,19 @@ kann beitreten. Wenn jemand drin ist, der nicht reingehört: im Profil unter
 **Gruppe** auf **Entfernen** tippen. Die Person wird dann gesperrt und kann nicht
 wieder beitreten. Unter **Gesperrt** kannst du die Sperre wieder aufheben.
 
+## Reihenfolge im Feed
+
+Beim Öffnen sortiert Clips den Feed neu:
+
+1. Zuerst Videos von anderen, die du noch nicht gesehen hast. Neue und
+   beliebte (Likes, Kommentare) kommen weiter nach vorne, dazu etwas Zufall.
+2. Danach deine eigenen und schon gesehene Videos, die am längsten nicht mehr
+   gesehenen zuerst.
+3. Dieselbe Person kommt möglichst nicht zweimal hintereinander.
+
+Ein Video gilt als gesehen, wenn es 2 Sekunden lief. Das wird in deinem Konto
+gespeichert und gilt deshalb auf allen Geräten.
+
 ## Wer darf was? (durch die Datenbank-Regeln abgesichert)
 
 - Nur Mitglieder sehen Videos, Likes, Kommentare und die Mitgliederliste.
