@@ -356,6 +356,7 @@ function startApp() {
     } else showError(err);
   }));
   watchReports();
+  setTimeout(checkStorageWarning, 4000);
   const token = (startApp.token = (startApp.token || 0) + 1);
   // Erst wissen, was schon gesehen wurde, dann den Feed sortieren
   loadSeen().then(() => { if (token === startApp.token && S.feed) subscribeFeed(); });
@@ -1293,6 +1294,13 @@ function renderGroup(box) {
     box.insertBefore(rep, box.querySelector('.grid'));
     loadReports(repList);
 
+    const store = el('section', 'group');
+    store.append(el('h3', null, 'Speicher'));
+    const storeBox = el('div', 'storage');
+    store.append(storeBox);
+    box.append(store);
+    loadStorage(storeBox);
+
     const ban = el('section', 'group');
     ban.append(el('h3', null, 'Gesperrt'));
     const ul = el('ul', 'list');
@@ -1304,6 +1312,113 @@ function renderGroup(box) {
   const out = el('section', 'group');
   out.append(button('Abmelden', () => S.auth.signOut(), 'link'));
   box.append(out);
+}
+
+// ---------- Speicher (nur Admin) ----------
+// Das kostenlose Firestore-Kontingent hat 1 GiB. Die Größe wird aus den
+// Video-Dokumenten geschätzt; genau steht es in Firebase unter Firestore → Nutzung.
+const FREE_BYTES = 1024 * 1024 * 1024;
+const USAGE_URL = 'https://console.firebase.google.com/project/crypto-trading-ccd35/firestore/databases/-default-/usage';
+
+function videoBytes(v) {
+  const data = v.kind === 'link' ? 0 : (v.size || (v.chunks || 0) * CHUNK_BYTES);
+  const thumb = v.thumb && v.thumb.startsWith('data:') ? v.thumb.length : 0;
+  return data + thumb + 1000;
+}
+
+const plural = (n, one, many) => `${n} ${n === 1 ? one : many}`;
+
+function mb(bytes) {
+  return bytes >= 100 * 1024 * 1024 ? `${Math.round(bytes / 1048576)} MB` : `${(bytes / 1048576).toFixed(1)} MB`;
+}
+
+async function storageUsage() {
+  const snap = await videos().get();
+  const all = snap.docs.map(videoData);
+  const used = all.reduce((n, v) => n + videoBytes(v), 0);
+  return { all, used, share: used / FREE_BYTES };
+}
+
+async function loadStorage(box) {
+  box.replaceChildren(el('p', 'dim small', 'Wird berechnet …'));
+  try {
+    const { all, used, share } = await storageUsage();
+    box.innerHTML = '';
+    const pct = Math.min(100, Math.round(share * 100));
+    const bar = el('div', 'storage-bar' + (share >= 0.95 ? ' full' : share >= 0.8 ? ' warn' : ''));
+    const fill = el('span');
+    fill.style.width = Math.max(1, pct) + '%';
+    bar.append(fill);
+    const files = all.filter(v => v.kind !== 'link');
+    box.append(
+      el('p', 'storage-text', `${mb(used)} von 1 GB belegt (${pct} %)`),
+      bar,
+      el('p', 'dim small', `${plural(files.length, 'hochgeladenes Video', 'hochgeladene Videos')}, `
+        + `${plural(all.length - files.length, 'Link', 'Links')} (brauchen keinen Platz). `
+        + `Noch frei: ca. ${mb(Math.max(0, FREE_BYTES - used))}.`));
+    if (share >= 0.8) box.append(el('p', 'error-text small', 'Der Speicher wird knapp. Lösch große oder alte Videos, sonst klappt das Hochladen bald nicht mehr.'));
+
+    // Abgebrochene Uploads belegen Platz, ohne dass man sie sieht
+    const broken = files.filter(v => !v.ready);
+    if (broken.length) {
+      const row = el('div', 'row storage-broken');
+      row.append(el('span', 'grow small', `${plural(broken.length, 'abgebrochener Upload', 'abgebrochene Uploads')} (${mb(broken.reduce((n, v) => n + videoBytes(v), 0))})`),
+        button('Alle löschen', async () => {
+          for (const v of broken) await deleteVideo(v, true);
+          toast('Abgebrochene Uploads gelöscht.');
+          loadStorage(box);
+        }, 'small danger'));
+      box.append(row);
+    }
+
+    // Die größten Videos, damit man weiß, was sich zu löschen lohnt
+    const biggest = files.filter(v => v.ready).sort((a, b) => videoBytes(b) - videoBytes(a)).slice(0, 5);
+    if (biggest.length) {
+      box.append(el('h4', 'storage-head', 'Größte Videos'));
+      const ul = el('ul', 'list');
+      for (const v of biggest) {
+        const li = el('li', 'report-item');
+        const thumb = el('button', 'report-thumb');
+        thumb.type = 'button';
+        if (v.thumb) thumb.style.backgroundImage = `url("${v.thumb}")`;
+        thumb.onclick = () => openPlayer([v], v.id);
+        const info = el('div', 'grow');
+        const btns = el('div', 'row');
+        btns.append(
+          button('Ansehen', () => openPlayer([v], v.id), 'small'),
+          button('Löschen', async (e) => {
+            const b = e.currentTarget;
+            if (b.dataset.armed !== '1') { b.dataset.armed = '1'; b.textContent = 'Wirklich löschen?'; return; }
+            await deleteVideo(v);
+            loadStorage(box);
+          }, 'small danger'));
+        info.append(el('b', null, `${mb(videoBytes(v))} · @${nameOf(v.owner)}`),
+          el('p', 'dim small', `${v.caption || '(ohne Beschreibung)'} · ${minutes(v.duration || 0)} Min. · ${ago(v.createdAt)}`), btns);
+        li.append(thumb, info);
+        ul.append(li);
+      }
+      box.append(ul);
+    }
+    const link = el('a', 'small', 'Genaue Zahlen in Firebase ansehen');
+    link.href = USAGE_URL;
+    link.target = '_blank';
+    link.rel = 'noopener';
+    box.append(el('p', 'dim small', 'Die Anzeige ist geschätzt. '), link);
+  } catch (e) {
+    box.replaceChildren(el('p', 'error-text small', 'Speicher konnte nicht berechnet werden.'));
+    console.error(e);
+  }
+}
+
+// Beim Öffnen einmal prüfen und den Admin warnen, wenn es knapp wird
+async function checkStorageWarning() {
+  if (!isAdmin()) return;
+  try {
+    const { share } = await storageUsage();
+    S.storageWarn = share >= 0.8;
+    updateReportBadge();
+    if (S.storageWarn) toast(`Speicher zu ${Math.round(share * 100)} % voll. Details im Profil unter „Speicher“.`, true);
+  } catch (e) { console.warn(e); }
 }
 
 // ---------- Melden ----------
@@ -1398,7 +1513,7 @@ function watchReports() {
 
 function updateReportBadge() {
   const tab = document.querySelector('.tab[data-go=profile]');
-  if (tab) tab.classList.toggle('has-badge', isAdmin() && S.reportCount > 0);
+  if (tab) tab.classList.toggle('has-badge', isAdmin() && (S.reportCount > 0 || S.storageWarn));
 }
 
 function appLink() {

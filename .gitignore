@@ -15,3 +15,7 @@ debug/
 downloads/
 logs/
 state/
+
+# Firestore-Regeln: Abhängigkeiten und Emulator-Logs
+firestore/node_modules/
+firestore/*-debug.log

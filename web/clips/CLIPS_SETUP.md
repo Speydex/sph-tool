@@ -7,7 +7,13 @@ kommentieren, Profile ansehen.
 Clips nutzt dasselbe Firebase-Projekt wie BörsenTycoon und Schach
 (`crypto-trading-ccd35`). Konten gibt es also schon. Es fehlt nur ein Schritt:
 
-## 1. Regeln veröffentlichen (einmal)
+## 1. Regeln veröffentlichen
+
+Am einfachsten automatisch: einmal den Schlüssel bei GitHub hinterlegen (siehe
+[`firestore/README.md`](../../firestore/README.md)). Danach veröffentlicht GitHub
+die Regeln nach jeder Änderung selbst.
+
+Von Hand geht es so:
 
 1. [console.firebase.google.com](https://console.firebase.google.com) öffnen → Projekt `crypto-trading-ccd35`
 2. Links **Firestore Database** → Tab **Regeln**

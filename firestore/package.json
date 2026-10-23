@@ -1,0 +1,15 @@
+{
+  "name": "firestore-rules",
+  "private": true,
+  "description": "Tests und Deployment der Firestore-Regeln (siehe README.md in diesem Ordner)",
+  "type": "module",
+  "scripts": {
+    "test": "firebase --config ../firebase.json emulators:exec --only firestore --project demo-clips \"node rules.test.mjs\"",
+    "deploy": "firebase --config ../firebase.json deploy --only firestore:rules --project crypto-trading-ccd35 --non-interactive"
+  },
+  "devDependencies": {
+    "@firebase/rules-unit-testing": "3.0.4",
+    "firebase": "10.14.1",
+    "firebase-tools": "13.35.1"
+  }
+}
